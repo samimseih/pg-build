@@ -59,7 +59,9 @@ def stop_cluster(pgdata: Path, pg_home: Path, env: dict) -> None:
     if pgdata.exists():
         log.info(f"🛑 Stopping PostgreSQL cluster at {pgdata} if running...")
         try:
-            run([f"{pg_home}/bin/pg_ctl", "-D", str(pgdata), "stop", "-m", "fast"], env=env)
+            path = shutil.which(f"{pg_home}/bin/pg_ctl")
+            if path is not None:
+                run([f"{pg_home}/bin/pg_ctl", "-D", str(pgdata), "stop", "-m", "fast"], env=env)
         except subprocess.CalledProcessError:
             log.warning(f"⚠️ Could not stop cluster at {pgdata} or it was not running.")
 
