@@ -73,11 +73,11 @@ def delete_files_in_folder(folder_path: Path) -> None:
     folder_path.mkdir(parents=True, exist_ok=True)
 
 
-def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path) -> None:
+def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path, pg_bsd_indent_path: Path) -> None:
     # Compose the lines to write and set
     exports = [
         f"export PGHOME={pg_home}",
-        f"export PATH={pg_home}/bin:$PATH",
+        f"export PATH={pg_home}/bin:{pg_bsd_indent_path}:$PATH",
         f"export LD_LIBRARY_PATH={pg_home}/lib",
         f"export PGDATA={pgdata}",
         f"export PGUSER=postgres",
@@ -101,6 +101,14 @@ def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path) -
     os.environ["PGDATABASE"] = "postgres"
     os.environ["PGPORT"] = str(port)
 
+def find_pg_bsd_indent(build_root: Path) -> Path:
+    """
+    Recursively locate the pg_bsd_indent binary starting from the build root.
+    """
+    for path in build_root.rglob("pg_bsd_indent"):
+        if path.is_file() and os.access(path, os.X_OK):
+            return path
+    raise FileNotFoundError(f"pg_bsd_indent not found under {build_root}")
 
 def extract_postgres(tarball: Path, target: Path) -> Path:
     log.info(f"📦 Extracting PostgreSQL tarball {tarball} to {target}")
@@ -170,21 +178,23 @@ def start_db(pgdata: Path, pg_home: Path, env: dict) -> None:
     run([f"{pg_home}/bin/pg_ctl", "-D", str(pgdata), "-l", str(pgdata / "logfile"), "start"], env=env)
 
 
-def setup_fdw(pg_home: Path, port: int, env: dict, pgdata_fdw: Path, script_path: Path) -> None:
+def setup_fdw(pg_home: Path, port: int, env: dict, pgdata_fdw: Path, script_path: Path, prefix: Path) -> None:
+    pg_bsd_indent_path = find_pg_bsd_indent(prefix / "source" / "src_fdw")
     init_db(pgdata_fdw, pg_home, port, env)
-    activate_script(pg_home, pgdata_fdw, port, script_path)
+    activate_script(pg_home, pgdata_fdw, port, script_path, pg_bsd_indent_path)
     start_db(pgdata_fdw, pg_home, env)
 
 
-def setup_replica(pg_home: Path, pgdata_primary: Path, pgdata_replica: Path, replica_port: int, primary_port: int, env: dict, script_path: Path) -> None:
+def setup_replica(pg_home: Path, pgdata_primary: Path, pgdata_replica: Path, replica_port: int, primary_port: int, env: dict, script_path: Path, prefix: Path) -> None:
+    pg_bsd_indent_path = find_pg_bsd_indent(prefix / "source" / "src_replica")
     delete_files_in_folder(pgdata_replica)
     run([
         f"{pg_home}/bin/pg_basebackup", "-D", str(pgdata_replica), "-R", "-P", "-X", "stream",
-        "-cfast", "-h", "localhost", "-p", str(primary_port)
+        "-cfast", "-U", "postgres", "-h", "localhost", "-p", str(primary_port)
     ], env=env)
     # Fix directory permissions after base backup
     pgdata_replica.chmod(0o700)
-    activate_script(pg_home, pgdata_replica, replica_port, script_path)
+    activate_script(pg_home, pgdata_replica, replica_port, script_path, pg_bsd_indent_path)
     append_postgresql_conf_parameter(pgdata_replica, "port", str(replica_port))
     start_db(pgdata_replica, pg_home, env)
 
@@ -304,14 +314,15 @@ def main():
             delete_files_in_folder(d)
 
     init_db(pgdata_primary, pg_home_primary, args.port, env_primary)
-    activate_script(pg_home_primary, pgdata_primary, args.port, act_primary)
+    pg_bsd_indent_path = find_pg_bsd_indent(prefix / "source" / "src_primary")
+    activate_script(pg_home_primary, pgdata_primary, args.port, act_primary, pg_bsd_indent_path)
     start_db(pgdata_primary, pg_home_primary, env_primary)
 
     if args.create_fdw:
-        setup_fdw(pg_home_fdw, args.port + 10, env_fdw, pgdata_fdw, act_fdw)
+        setup_fdw(pg_home_fdw, args.port + 10, env_fdw, pgdata_fdw, act_fdw, prefix)
 
     if args.create_replica:
-        setup_replica(pg_home_replica, pgdata_primary, pgdata_replica, args.port + 20, args.port, env_replica, act_replica)
+        setup_replica(pg_home_replica, pgdata_primary, pgdata_replica, args.port + 20, args.port, env_replica, act_replica, prefix)
 
 
 if __name__ == "__main__":
