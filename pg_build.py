@@ -94,7 +94,7 @@ def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path, p
     # Set environment variables in the current Python process
     os.environ["PGHOME"] = str(pg_home)
     # Prepend pg_home/bin to PATH
-    os.environ["PATH"] = f"{pg_home}/bin:" + os.environ.get("PATH", "")
+    os.environ["PATH"] = f"{pg_home}/bin:{pg_bsd_indent_path}:" + os.environ.get("PATH", "")
     os.environ["LD_LIBRARY_PATH"] = f"{pg_home}/lib"
     os.environ["PGDATA"] = str(pgdata)
     os.environ["PGUSER"] = "postgres"
@@ -104,10 +104,11 @@ def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path, p
 def find_pg_bsd_indent(build_root: Path) -> Path:
     """
     Recursively locate the pg_bsd_indent binary starting from the build root.
+    Returns the parent directory containing the binary.
     """
     for path in build_root.rglob("pg_bsd_indent"):
         if path.is_file() and os.access(path, os.X_OK):
-            return path
+            return path.parent  # Return the directory, not the full path
     raise FileNotFoundError(f"pg_bsd_indent not found under {build_root}")
 
 def extract_postgres(tarball: Path, target: Path) -> Path:
