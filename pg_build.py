@@ -85,6 +85,19 @@ def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path, p
         f"export PGPORT={port}",
         f"alias PG_START=\"pg_ctl -D {pgdata} start\"",
         f"alias PG_STOP=\"pg_ctl -D {pgdata} stop\"",
+        "",
+        "#Build/Test helper functions",
+        "function pg_check_extension() {",
+        "    meson test -q --print-errorlogs --suite setup --suite $1",
+        "}",
+        "",
+        "function pg_check_world() {",
+        "    meson test -q --print-errorlogs",
+        "}",
+        "",
+        "function pg_build_docs() {",
+        "    ninja docs",
+        "}",
     ]
 
     # Write to the activation script file
