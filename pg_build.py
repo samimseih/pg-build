@@ -140,16 +140,13 @@ def build_postgres(source_dir: Path, install_dir: Path, patch: Optional[str], me
             log.info(f"📄 Applying patch: {patch_file}")
             run(["git", "am", str(patch_file)], cwd=source_dir, capture_output=capture_output)
 
-    meson_args = meson_args or [
-        f"--prefix={install_dir}",
-        "-Duuid=e2fs",
-        "--debug",
-        "-Dcassert=true",
-        "-Dtap_tests=enabled",
-        "-Dc_args=-fno-omit-frame-pointer",
+    meson_args_combined = [
+        f"--prefix={install_dir}"
     ]
 
-    run(["meson", "setup", "build"] + meson_args, cwd=source_dir, capture_output=capture_output)
+    meson_args_combined.extend(meson_args)
+
+    run(["meson", "setup", "build"] + meson_args_combined, cwd=source_dir, capture_output=capture_output)
     build_dir = source_dir / "build"
     run(["ninja"], cwd=build_dir, capture_output=capture_output)
     run(["ninja", "install"], cwd=build_dir, capture_output=capture_output)
