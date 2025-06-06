@@ -222,7 +222,7 @@ def main():
     parser.add_argument("--prefix", type=Path, default=default_prefix, help="Top-level directory for everything.")
     parser.add_argument("--source", type=Path, default=Path("postgres.tar.gz"), help=".tar.gz PostgreSQL source file")
     parser.add_argument("--patch", type=str, help="Glob pattern for patch files (e.g., 'patches/*.patch')")
-    parser.add_argument("--meson-flags", type=str)
+    parser.add_argument("--meson-flags", type=str, help='--meson-flags="-Ddocs=enabled"')
     parser.add_argument("--branch", type=str)
     parser.add_argument("--tag", type=str)
     # Multi-ref support arguments
