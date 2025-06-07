@@ -9,7 +9,7 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 
-python $SCRIPT_DIR/pg_build.py \
---source $1 \
+python3 $SCRIPT_DIR/pg_build.py \
+--source postgres.tar.gz \
 --meson-flags="-Ddocs=enabled -Duuid=e2fs --debug -Dcassert=true -Dtap_tests=enabled -Dc_args=-fno-omit-frame-pointer" \
 "$@"
