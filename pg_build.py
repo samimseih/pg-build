@@ -98,6 +98,14 @@ def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path, p
         "function pg_build_docs() {",
         "    ninja docs",
         "}",
+        "",
+        "function pg_list_tests() {",
+        "    meson test --list",
+        "}",
+        "",
+        "function pg_run_suite() {",
+        "    meson test -v -C . --suite \"$1\"",
+        "}",
     ]
 
     # Write to the activation script file
