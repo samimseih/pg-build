@@ -104,6 +104,7 @@ def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path, p
         "}",
         "",
         "function pg_run_suite() {",
+        "    meson test -v -C . --suite setup",
         "    meson test -v -C . --suite \"$1\"",
         "}",
     ]
