@@ -1,5 +1,10 @@
 # PostgreSQL Multi-Instance Build and Setup Script
 
+> ⚠️ **Notice**
+>
+> This project is provided **for non-production use only**.
+> It lacks the guarantees required for secure, stable, or scalable deployment in production systems.
+
 This Python script automates building PostgreSQL from source (either a `.tar.gz` source archive or a GitHub branch/tag), optionally applies patches, and sets up multiple PostgreSQL clusters: a primary, a foreign data wrapper (FDW), and a replica. Each PostgreSQL build and cluster runs isolated in its own installation and data directory.
 
 ---
