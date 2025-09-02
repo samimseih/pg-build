@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Author: Sami Imseih
 Purpose: Automate building PostgreSQL from source (tar.gz or latest GitHub),
@@ -16,6 +15,7 @@ import logging
 import platform
 import tempfile
 import glob
+import shlex
 from pathlib import Path
 from typing import Optional, Union, List
 
@@ -24,7 +24,10 @@ log = logging.getLogger()
 
 
 def run(command: Union[str, List[str]], **kwargs) -> subprocess.CompletedProcess:
-    log.info(f"🔀 Running: {' '.join(command) if isinstance(command, list) else command}")
+    if isinstance(command, list):
+        log.info(f"🔀 Running: {shlex.join(command)}")
+    else:
+        log.info(f"🔀 Running: {command}")
 
     capture_output = kwargs.get("capture_output", False)
 
@@ -37,7 +40,7 @@ def run(command: Union[str, List[str]], **kwargs) -> subprocess.CompletedProcess
 
     result = subprocess.run(
         command,
-        shell=kwargs.get("shell", False),
+        shell=False if isinstance(command, list) else True,
         check=kwargs.get("check", True),
         env=kwargs.get("env"),
         stdout=stdout,
@@ -74,7 +77,6 @@ def delete_files_in_folder(folder_path: Path) -> None:
 
 
 def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path, pg_bsd_indent_path: Path) -> None:
-    # Compose the lines to write and set
     exports = [
         f"export PGHOME={pg_home}",
         f"export PATH={pg_home}/bin:{pg_bsd_indent_path}:$PATH",
@@ -109,13 +111,10 @@ def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path, p
         "}",
     ]
 
-    # Write to the activation script file
     script_name.write_text("\n".join(exports) + "\n")
     log.info(f"✅ Wrote activation script: {script_name}")
 
-    # Set environment variables in the current Python process
     os.environ["PGHOME"] = str(pg_home)
-    # Prepend pg_home/bin to PATH
     os.environ["PATH"] = f"{pg_home}/bin:{pg_bsd_indent_path}:" + os.environ.get("PATH", "")
     os.environ["LD_LIBRARY_PATH"] = f"{pg_home}/lib"
     os.environ["PGDATA"] = str(pgdata)
@@ -123,15 +122,13 @@ def activate_script(pg_home: Path, pgdata: Path, port: int, script_name: Path, p
     os.environ["PGDATABASE"] = "postgres"
     os.environ["PGPORT"] = str(port)
 
+
 def find_pg_bsd_indent(build_root: Path) -> Path:
-    """
-    Recursively locate the pg_bsd_indent binary starting from the build root.
-    Returns the parent directory containing the binary.
-    """
     for path in build_root.rglob("pg_bsd_indent"):
         if path.is_file() and os.access(path, os.X_OK):
-            return path.parent  # Return the directory, not the full path
+            return path.parent
     raise FileNotFoundError(f"pg_bsd_indent not found under {build_root}")
+
 
 def extract_postgres(tarball: Path, target: Path) -> Path:
     log.info(f"📦 Extracting PostgreSQL tarball {tarball} to {target}")
@@ -162,11 +159,9 @@ def build_postgres(source_dir: Path, install_dir: Path, patch: Optional[str], me
             log.info(f"📄 Applying patch: {patch_file}")
             run(["git", "am", str(patch_file)], cwd=source_dir, capture_output=capture_output)
 
-    meson_args_combined = [
-        f"--prefix={install_dir}"
-    ]
-
-    meson_args_combined.extend(meson_args)
+    meson_args_combined = [f"--prefix={install_dir}"]
+    if meson_args:
+        meson_args_combined.extend(meson_args)
 
     run(["meson", "setup", "build"] + meson_args_combined, cwd=source_dir, capture_output=capture_output)
     build_dir = source_dir / "build"
@@ -212,7 +207,6 @@ def setup_replica(pg_home: Path, pgdata_primary: Path, pgdata_replica: Path, rep
         f"{pg_home}/bin/pg_basebackup", "-D", str(pgdata_replica), "-R", "-P", "-X", "stream",
         "-cfast", "-U", "postgres", "-h", "localhost", "-p", str(primary_port)
     ], env=env)
-    # Fix directory permissions after base backup
     pgdata_replica.chmod(0o700)
     activate_script(pg_home, pgdata_replica, replica_port, script_path, pg_bsd_indent_path)
     append_postgresql_conf_parameter(pgdata_replica, "port", str(replica_port))
@@ -230,7 +224,6 @@ def download_and_tar_postgres(tarball_path: Path):
 
 
 def main():
-    # Determine default prefix based on platform
     system_name = platform.system().lower()
     if system_name == "darwin":
         default_prefix = Path.home() / "Documents" / "pgdev" / "installations"
@@ -247,14 +240,12 @@ def main():
     parser.add_argument("--meson-flags", type=str, help='--meson-flags="-Ddocs=enabled"')
     parser.add_argument("--branch", type=str)
     parser.add_argument("--tag", type=str)
-    # Multi-ref support arguments
     parser.add_argument("--primary-branch", type=str)
     parser.add_argument("--primary-tag", type=str)
     parser.add_argument("--fdw-branch", type=str)
     parser.add_argument("--fdw-tag", type=str)
     parser.add_argument("--replica-branch", type=str)
     parser.add_argument("--replica-tag", type=str)
-
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--create-fdw", action="store_true")
     parser.add_argument("--create-replica", action="store_true")
@@ -264,7 +255,6 @@ def main():
 
     args = parser.parse_args()
 
-    # --update-tarball mode
     if args.update_tarball:
         if len(sys.argv) > 3:
             log.error("❌ --update-tarball cannot be used with other options")
@@ -277,7 +267,6 @@ def main():
         sys.exit(1)
 
     prefix = args.prefix.resolve()
-    # Changed: separate pghome dirs per instance
     pg_home_primary = prefix / "pghome_primary"
     pg_home_fdw = prefix / "pghome_fdw"
     pg_home_replica = prefix / "pghome_replica"
@@ -300,7 +289,13 @@ def main():
         delete_files_in_folder(tmp_src)
         extracted = extract_postgres(args.source, tmp_src)
         git_checkout_and_pull(extracted, branch, tag)
-        build_postgres(extracted, pg_home, args.patch, args.meson_flags.split() if args.meson_flags else None, args.capture_output)
+        build_postgres(
+            extracted,
+            pg_home,
+            args.patch,
+            shlex.split(args.meson_flags) if args.meson_flags else None,
+            args.capture_output,
+        )
 
     if not args.skip_build:
         delete_files_in_folder(prefix)
