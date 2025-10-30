@@ -213,11 +213,12 @@ def setup_replica(pg_home: Path, pgdata_primary: Path, pgdata_replica: Path, rep
     start_db(pgdata_replica, pg_home, env)
 
 
-def download_and_tar_postgres(tarball_path: Path):
-    log.info("⬇️ Cloning latest PostgreSQL...")
+def download_and_tar_postgres(tarball_path: Path, repo_url: str):
+    log.info(f"⬇️ Cloning PostgreSQL from {repo_url} ...")
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_path = Path(tmpdir) / "postgres"
-        run(["git", "clone", "https://github.com/postgres/postgres.git", str(repo_path)])
+        log.info(f"🔀 Running: git clone {repo_url}")
+        run(["git", "clone", repo_url, str(repo_path)])
         with tarfile.open(tarball_path, "w:gz") as tar:
             tar.add(repo_path, arcname="postgres")
     log.info(f"🎁 Tarball written to {tarball_path}")
@@ -252,14 +253,21 @@ def main():
     parser.add_argument("--port", type=int, default=5432)
     parser.add_argument("--capture-output", action="store_true")
     parser.add_argument("--update-tarball", type=Path, help="Download and tar latest PostgreSQL source to specified path")
+    parser.add_argument(
+        "--repo-url",
+        type=str,
+        default="https://github.com/postgres/postgres.git",
+        help="Git repository URL to clone PostgreSQL from (default: official upstream)."
+    )
 
     args = parser.parse_args()
 
+    if args.update_tarball and not args.repo_url:
+        log.error("--update-tarball requires --repo-url to also be specified.")
+        sys.exit(1)
+
     if args.update_tarball:
-        if len(sys.argv) > 3:
-            log.error("❌ --update-tarball cannot be used with other options")
-            sys.exit(1)
-        download_and_tar_postgres(args.update_tarball)
+        download_and_tar_postgres(args.update_tarball, args.repo_url)
         sys.exit(0)
 
     if args.tag and args.branch:
@@ -342,3 +350,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
