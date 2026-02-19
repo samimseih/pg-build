@@ -101,8 +101,28 @@ def setup_worktree(repo_root: Path,
         run(["git", "worktree", "remove", str(worktree_dir)], cwd=repo_root, check=False)
         shutil.rmtree(worktree_dir, ignore_errors=True)
 
-    log.info(f"🔀 Creating worktree at {worktree_dir} for {checkout_ref}")
-    run(["git", "worktree", "add", str(worktree_dir), f"origin/{checkout_ref}"], cwd=repo_root)
+    # -----------------------------
+    # Check if branch is already used in another worktree
+    result = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True
+    ).stdout.splitlines()
+
+    branches_in_use = set()
+    for line in result:
+        if line.startswith("branch refs/heads/"):
+            branches_in_use.add(line.split("/")[-1])  # get branch name
+
+    if checkout_ref in branches_in_use:
+        unique_branch = f"{checkout_ref}_{worktree_dir.name}"
+        log.info(f"⚠️ Branch {checkout_ref} is already used in another worktree, creating unique branch: {unique_branch}")
+        run(["git", "worktree", "add", "-b", unique_branch, str(worktree_dir), f"origin/{checkout_ref}"], cwd=repo_root)
+    else:
+        run(["git", "worktree", "add", str(worktree_dir), checkout_ref], cwd=repo_root)
+
+    log.info(f"🔀 Worktree ready at {worktree_dir}")
     return worktree_dir
 
 # -----------------------------
@@ -188,7 +208,6 @@ def build_instance(pg_home: Path,
                    port: int,
                    skip_build: bool = False):
 
-    # all worktrees live under prefix/worktrees
     worktrees_dir = prefix / "worktrees"
     worktrees_dir.mkdir(parents=True, exist_ok=True)
     worktree_name_final = f"{args.worktree_name}_{name}" if args.worktree_name else f"src_{name}"
@@ -224,10 +243,8 @@ def build_instance(pg_home: Path,
     env = os.environ.copy()
     env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
 
-    # Set PGDATA
+    # PGDATA & activation script
     pgdata_dir = prefix / "pgdata" / name
-
-    # Activation script
     script_file = prefix / f"activate_{name}.sh"
     activate_script(pg_home, pgdata_dir, port, script_file, source_path, worktree_name=args.worktree_name)
 
