@@ -52,7 +52,6 @@ def stop_postgres(pg_home: Path, pgdata: Path, port: int):
     except Exception:
         pass
 
-    # fallback: kill processes on the port
     try:
         subprocess.run(f"fuser -k {port}/tcp", shell=True, check=False)
     except Exception:
@@ -113,12 +112,27 @@ def setup_worktree(repo_root: Path,
     branches_in_use = set()
     for line in result:
         if line.startswith("branch refs/heads/"):
-            branches_in_use.add(line.split("/")[-1])  # get branch name
+            branches_in_use.add(line.split("/")[-1])
 
     if checkout_ref in branches_in_use:
         unique_branch = f"{checkout_ref}_{worktree_dir.name}"
         log.info(f"⚠️ Branch {checkout_ref} is already used in another worktree, creating unique branch: {unique_branch}")
-        run(["git", "worktree", "add", "-b", unique_branch, str(worktree_dir), f"origin/{checkout_ref}"], cwd=repo_root)
+
+        # ---- FIX: delete existing local branch before recreating ----
+        existing_branches = subprocess.run(
+            ["git", "branch", "--format", "%(refname:short)"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True
+        ).stdout.splitlines()
+
+        if unique_branch in existing_branches:
+            log.info(f"🧹 Deleting existing local branch {unique_branch}")
+            run(["git", "branch", "-D", unique_branch], cwd=repo_root)
+        # -------------------------------------------------------------
+
+        run(["git", "worktree", "add", "-b", unique_branch,
+             str(worktree_dir), f"origin/{checkout_ref}"], cwd=repo_root)
     else:
         run(["git", "worktree", "add", str(worktree_dir), checkout_ref], cwd=repo_root)
 
@@ -305,4 +319,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
