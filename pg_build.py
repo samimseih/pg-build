@@ -97,7 +97,7 @@ def setup_worktree(repo_root: Path,
 
     # Remove existing worktree if present
     if worktree_dir.exists():
-        run(["git", "worktree", "remove", str(worktree_dir)], cwd=repo_root, check=False)
+        run(["git", "worktree", "remove", "--force", str(worktree_dir)], cwd=repo_root, check=False)
         shutil.rmtree(worktree_dir, ignore_errors=True)
 
     # -----------------------------
