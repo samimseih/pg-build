@@ -231,24 +231,25 @@ def build_instance(pg_home: Path,
                    tag: Optional[str],
                    name: str,
                    port: int,
-                   skip_build: bool = False):
+                   skip_build: bool = False,
+                   force_worktree: bool = False):
 
     worktrees_dir = prefix / "worktrees"
     worktrees_dir.mkdir(parents=True, exist_ok=True)
     worktree_name_final = f"{args.worktree_name}_{name}" if args.worktree_name else f"src_{name}"
     worktree_dir = worktrees_dir / worktree_name_final
 
-    if not skip_build:
+    if not skip_build or force_worktree:
         source_path = setup_worktree(source_dir, worktree_dir, branch, tag, args.repo_url)
 
         # Apply patches
-        if args.patch:
+        if args.patch and not skip_build:
             for patch in sorted(glob.glob(args.patch)):
                 log.info(f"📄 Applying patch {patch}")
                 run(["git", "am", patch], cwd=source_path)
 
         # Build
-        if args.build_system == "meson":
+        if not skip_build:
             build_dir = source_path / "build"
             if build_dir.exists():
                 shutil.rmtree(build_dir)
@@ -326,12 +327,12 @@ def main():
     # FDW
     if args.create_fdw:
         pg_home_fdw = prefix / "pghome_fdw"
-        build_instance(pg_home_fdw, args.branch, args.tag, "fdw", args.port + 10, skip_build=args.skip_build)
+        build_instance(pg_home_fdw, args.branch, args.tag, "fdw", args.port + 10, skip_build=args.skip_build, force_worktree=True)
 
     # Replica
     if args.create_replica:
         pg_home_replica = prefix / "pghome_replica"
-        build_instance(pg_home_replica, args.branch, args.tag, "replica", args.port + 20, skip_build=args.skip_build)
+        build_instance(pg_home_replica, args.branch, args.tag, "replica", args.port + 20, skip_build=args.skip_build, force_worktree=True)
 
     log.info("✅ Build/init/start completed successfully.")
 
