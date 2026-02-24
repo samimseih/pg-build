@@ -354,7 +354,7 @@ def build_instance(pg_home: Path,
     worktree_dir = worktrees_dir / worktree_name_final
 
     # Setup worktree if needed
-    if not worktree_dir.exists() or (not skip_build and force_worktree):
+    if not worktree_dir.exists() or (not skip_build and force_worktree) or args.force_worktree:
         source_path = setup_worktree(source_dir, worktree_dir, branch, tag, args.repo_url)
     else:
         source_path = worktree_dir
@@ -400,20 +400,35 @@ def build_instance(pg_home: Path,
 # Main
 # -----------------------------
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--prefix", type=Path, default=Path.home() / "pgdev/installations")
-    parser.add_argument("--repo-url", type=str, default="https://github.com/postgres/postgres.git")
-    parser.add_argument("--branch", type=str)
-    parser.add_argument("--tag", type=str)
-    parser.add_argument("--patch", type=str)
-    parser.add_argument("--meson-flags", type=str)
-    parser.add_argument("--build-system", choices=["meson", "make"], default="meson")
-    parser.add_argument("--worktree-name", type=str)
-    parser.add_argument("--create-fdw", action="store_true")
-    parser.add_argument("--create-replica", action="store_true")
-    parser.add_argument("--skip-build", action="store_true")
-    parser.add_argument("--capture-output", action="store_true")
-    parser.add_argument("--port", type=int, default=5432)
+    parser = argparse.ArgumentParser(description="Build and manage PostgreSQL development instances")
+    parser.add_argument("--prefix", type=Path, default=Path.home() / "pgdev/installations",
+                        help="Root directory for build artifacts, data, and scripts (default: ~/pgdev/installations)")
+    parser.add_argument("--repo-url", type=str, default="https://github.com/postgres/postgres.git",
+                        help="Git repository URL to clone from")
+    parser.add_argument("--branch", type=str,
+                        help="Branch to check out (required if --tag not set)")
+    parser.add_argument("--tag", type=str,
+                        help="Tag to check out (required if --branch not set)")
+    parser.add_argument("--patch", type=str,
+                        help="Glob pattern of .patch files to apply via git am")
+    parser.add_argument("--meson-flags", type=str,
+                        help="Extra flags passed to meson setup")
+    parser.add_argument("--build-system", choices=["meson", "make"], default="meson",
+                        help="Build system to use (default: meson)")
+    parser.add_argument("--worktree-name", type=str,
+                        help="Optional prefix for naming worktree directories")
+    parser.add_argument("--create-fdw", action="store_true",
+                        help="Also build and start an FDW instance (port + 10)")
+    parser.add_argument("--create-replica", action="store_true",
+                        help="Also build and start a replica instance (port + 20)")
+    parser.add_argument("--skip-build", action="store_true",
+                        help="Skip the build step (re-init DB only)")
+    parser.add_argument("--force-worktree", action="store_true",
+                        help="Force recreation of worktree even if it exists")
+    parser.add_argument("--capture-output", action="store_true",
+                        help="Suppress stdout/stderr from build commands")
+    parser.add_argument("--port", type=int, default=5432,
+                        help="Port for the primary instance (default: 5432)")
 
     global args
     args = parser.parse_args()

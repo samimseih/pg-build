@@ -39,6 +39,7 @@ python pg_build.py [OPTIONS]
 | `--create-fdw` | off | Also build and start an FDW instance (port + 10) |
 | `--create-replica` | off | Also build and start a replica instance (port + 20) |
 | `--skip-build` | off | Skip the build step (re-init DB only) |
+| `--force-worktree` | off | Force recreation of worktree even if it exists |
 | `--capture-output` | off | Suppress stdout/stderr from build commands |
 | `--port PORT` | `5432` | Port for the primary instance |
 
@@ -69,6 +70,11 @@ python pg_build.py --branch master --create-fdw --create-replica
 Re-initialize the database without rebuilding:
 ```bash
 python pg_build.py --branch master --skip-build
+```
+
+Force recreation of worktree (useful when switching branches or after manual changes):
+```bash
+python pg_build.py --branch master --skip-build --force-worktree
 ```
 
 ## Directory Layout
@@ -119,6 +125,7 @@ This exports `PGHOME`, `PGDATA`, `PGPORT`, `PATH`, `LD_LIBRARY_PATH`, and severa
 ## Notes
 
 - Each run **destroys and recreates** the worktree, build, and data directory for the affected instances. It is not intended for production use.
+- By default with `--skip-build`, existing worktrees are reused for efficiency. Use `--force-worktree` to recreate them.
 - The script stops any existing PostgreSQL process on the target port before reinitializing.
 - `--patch` accepts a glob pattern; patches are applied in sorted order.
 - Both `--branch` and `--tag` are mapped to `origin/<ref>` when creating the worktree.
