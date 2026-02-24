@@ -52,8 +52,19 @@ def stop_postgres(pg_home: Path, pgdata: Path, port: int):
     except Exception:
         pass
 
+    # Kill any remaining processes on the port (macOS compatible)
     try:
-        subprocess.run(f"fuser -k {port}/tcp", shell=True, check=False)
+        result = subprocess.run(
+            f"lsof -ti tcp:{port}",
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.stdout.strip():
+            pids = result.stdout.strip().split('\n')
+            for pid in pids:
+                subprocess.run(f"kill -9 {pid}", shell=True, check=False)
     except Exception:
         pass
 
@@ -227,16 +238,16 @@ def build_instance(pg_home: Path,
     worktree_name_final = f"{args.worktree_name}_{name}" if args.worktree_name else f"src_{name}"
     worktree_dir = worktrees_dir / worktree_name_final
 
-    source_path = setup_worktree(source_dir, worktree_dir, branch, tag, args.repo_url)
-
-    # Apply patches
-    if args.patch and not skip_build:
-        for patch in sorted(glob.glob(args.patch)):
-            log.info(f"📄 Applying patch {patch}")
-            run(["git", "am", patch], cwd=source_path)
-
-    # Build
     if not skip_build:
+        source_path = setup_worktree(source_dir, worktree_dir, branch, tag, args.repo_url)
+
+        # Apply patches
+        if args.patch:
+            for patch in sorted(glob.glob(args.patch)):
+                log.info(f"📄 Applying patch {patch}")
+                run(["git", "am", patch], cwd=source_path)
+
+        # Build
         if args.build_system == "meson":
             build_dir = source_path / "build"
             if build_dir.exists():
@@ -253,6 +264,13 @@ def build_instance(pg_home: Path,
             run(["./configure", f"--prefix={pg_home}"], cwd=source_path, env=env)
             run(["make", "-j", str(os.cpu_count())], cwd=source_path, env=env)
             run(["make", "install"], cwd=source_path, env=env)
+    else:
+        # When skipping build, verify worktree exists
+        if not worktree_dir.exists():
+            log.error(f"❌ Worktree {worktree_dir} does not exist. Cannot skip build without existing worktree.")
+            sys.exit(1)
+        source_path = worktree_dir
+        log.info(f"⏭️  Skipping build, using existing worktree at {source_path}")
 
     env = os.environ.copy()
     env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
