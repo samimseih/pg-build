@@ -68,6 +68,15 @@ def stop_postgres(pg_home: Path, pgdata: Path, port: int):
     except Exception:
         pass
 
+    # Remove stale PID file if it exists
+    pid_file = pgdata / "postmaster.pid"
+    if pid_file.exists():
+        try:
+            pid_file.unlink()
+            log.info(f"🧹 Removed stale PID file: {pid_file}")
+        except Exception:
+            pass
+
 # -----------------------------
 # Worktree setup
 # -----------------------------
@@ -224,6 +233,111 @@ def start_db(pg_home: Path, pgdata: Path, env: dict):
     run([str(pg_home / "bin/pg_ctl"), "-D", str(pgdata), "-l", str(pgdata / "logfile"), "start"], env=env)
 
 # -----------------------------
+# Setup streaming replication
+# -----------------------------
+def setup_replication(primary_home: Path, primary_data: Path, primary_port: int,
+                      replica_home: Path, replica_data: Path, replica_port: int):
+    import time
+
+    log.info("🔧 Setting up streaming replication...")
+
+    # 1. Configure primary for replication
+    log.info("📝 Configuring primary server for replication...")
+    primary_conf = primary_data / "postgresql.conf"
+    with open(primary_conf, "a") as f:
+        f.write("\n# Replication settings\n")
+        f.write("wal_level = replica\n")
+        f.write("max_wal_senders = 3\n")
+        f.write("wal_keep_size = 64MB\n")
+
+    # Add replication entry to pg_hba.conf
+    primary_hba = primary_data / "pg_hba.conf"
+    hba_content = primary_hba.read_text()
+    if "replication" not in hba_content:
+        with open(primary_hba, "a") as f:
+            f.write("host    replication     all             127.0.0.1/32            trust\n")
+
+    # Restart primary to apply changes
+    log.info("🔄 Restarting primary to apply replication settings...")
+    env = os.environ.copy()
+    env["PATH"] = f"{primary_home}/bin:" + env.get("PATH", "")
+    run([str(primary_home / "bin/pg_ctl"), "-D", str(primary_data), "restart",
+         "-l", str(primary_data / "logfile")], env=env)
+
+    time.sleep(2)
+
+    # 2. Stop replica and remove its data
+    log.info("🛑 Stopping replica...")
+    stop_postgres(replica_home, replica_data, replica_port)
+
+    log.info("🧹 Cleaning replica data directory...")
+    if replica_data.exists():
+        shutil.rmtree(replica_data)
+    replica_data.mkdir(parents=True, exist_ok=True)
+    # Set proper permissions for PostgreSQL
+    os.chmod(replica_data, 0o700)
+
+    # 3. Create base backup from primary
+    log.info("📦 Creating base backup from primary...")
+    run([str(primary_home / "bin/pg_basebackup"),
+         "-h", "localhost",
+         "-p", str(primary_port),
+         "-U", "postgres",
+         "-D", str(replica_data),
+         "-Fp", "-Xs", "-P", "-R"], env=env)
+
+    # 4. Configure replica
+    log.info("📝 Configuring replica server...")
+    replica_conf = replica_data / "postgresql.conf"
+    with open(replica_conf, "a") as f:
+        f.write(f"\n# Replica-specific settings\n")
+        f.write(f"port = {replica_port}\n")
+        f.write("hot_standby = on\n")
+
+    # 5. Start replica
+    log.info("🚀 Starting replica...")
+    env["PATH"] = f"{replica_home}/bin:" + env.get("PATH", "")
+    try:
+        run([str(replica_home / "bin/pg_ctl"), "-D", str(replica_data), "start",
+             "-l", str(replica_data / "logfile")], env=env)
+        time.sleep(2)
+    except subprocess.CalledProcessError as e:
+        log.error(f"❌ Failed to start replica. Check logfile at {replica_data / 'logfile'}")
+        # Try to show the last few lines of the logfile
+        logfile = replica_data / "logfile"
+        if logfile.exists():
+            log.error("Last 20 lines of replica logfile:")
+            with open(logfile) as f:
+                lines = f.readlines()
+                for line in lines[-20:]:
+                    log.error(f"  {line.rstrip()}")
+        raise
+
+    # 6. Verify replication
+    log.info("")
+    log.info("✅ Replication setup complete!")
+    log.info("")
+    log.info("Verification:")
+    log.info("-------------")
+
+    try:
+        result = run([str(primary_home / "bin/psql"),
+                     "-h", "localhost", "-p", str(primary_port),
+                     "-U", "postgres", "-d", "postgres",
+                     "-tAc", "SELECT CASE WHEN pg_is_in_recovery() THEN 'REPLICA' ELSE 'PRIMARY' END;"],
+                    env=env, capture_output=True)
+        log.info(f"Primary status: {result.stdout.strip()}")
+
+        result = run([str(replica_home / "bin/psql"),
+                     "-h", "localhost", "-p", str(replica_port),
+                     "-U", "postgres", "-d", "postgres",
+                     "-tAc", "SELECT CASE WHEN pg_is_in_recovery() THEN 'REPLICA' ELSE 'PRIMARY' END;"],
+                    env=env, capture_output=True)
+        log.info(f"Replica status: {result.stdout.strip()}")
+    except Exception as e:
+        log.warning(f"⚠️  Could not verify replication status: {e}")
+
+# -----------------------------
 # Build logic
 # -----------------------------
 def build_instance(pg_home: Path,
@@ -239,39 +353,30 @@ def build_instance(pg_home: Path,
     worktree_name_final = f"{args.worktree_name}_{name}" if args.worktree_name else f"src_{name}"
     worktree_dir = worktrees_dir / worktree_name_final
 
-    if not skip_build or force_worktree:
+    # Setup worktree if needed
+    if not worktree_dir.exists() or (not skip_build and force_worktree):
         source_path = setup_worktree(source_dir, worktree_dir, branch, tag, args.repo_url)
-
-        # Apply patches
-        if args.patch and not skip_build:
-            for patch in sorted(glob.glob(args.patch)):
-                log.info(f"📄 Applying patch {patch}")
-                run(["git", "am", patch], cwd=source_path)
-
-        # Build
-        if not skip_build:
-            build_dir = source_path / "build"
-            if build_dir.exists():
-                shutil.rmtree(build_dir)
-            cmd = ["meson", "setup", "build", f"--prefix={pg_home}"]
-            if args.meson_flags:
-                cmd.extend(shlex.split(args.meson_flags))
-            run(cmd, cwd=source_path, capture_output=args.capture_output)
-            run(["ninja"], cwd=build_dir, capture_output=args.capture_output)
-            run(["ninja", "install"], cwd=build_dir, capture_output=args.capture_output)
-        else:
-            env = os.environ.copy()
-            env["PREFIX"] = str(pg_home)
-            run(["./configure", f"--prefix={pg_home}"], cwd=source_path, env=env)
-            run(["make", "-j", str(os.cpu_count())], cwd=source_path, env=env)
-            run(["make", "install"], cwd=source_path, env=env)
     else:
-        # When skipping build, verify worktree exists
-        if not worktree_dir.exists():
-            log.error(f"❌ Worktree {worktree_dir} does not exist. Cannot skip build without existing worktree.")
-            sys.exit(1)
         source_path = worktree_dir
-        log.info(f"⏭️  Skipping build, using existing worktree at {source_path}")
+        log.info(f"⏭️  Using existing worktree at {source_path}")
+
+    # Apply patches
+    if args.patch and not skip_build:
+        for patch in sorted(glob.glob(args.patch)):
+            log.info(f"📄 Applying patch {patch}")
+            run(["git", "am", patch], cwd=source_path)
+
+    # Build
+    if not skip_build:
+        build_dir = source_path / "build"
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+        cmd = ["meson", "setup", "build", f"--prefix={pg_home}"]
+        if args.meson_flags:
+            cmd.extend(shlex.split(args.meson_flags))
+        run(cmd, cwd=source_path, capture_output=args.capture_output)
+        run(["ninja"], cwd=build_dir, capture_output=args.capture_output)
+        run(["ninja", "install"], cwd=build_dir, capture_output=args.capture_output)
 
     env = os.environ.copy()
     env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
@@ -333,6 +438,12 @@ def main():
     if args.create_replica:
         pg_home_replica = prefix / "pghome_replica"
         build_instance(pg_home_replica, args.branch, args.tag, "replica", args.port + 20, skip_build=args.skip_build, force_worktree=True)
+
+        # Setup replication between primary and replica
+        pgdata_primary = prefix / "pgdata" / "primary"
+        pgdata_replica = prefix / "pgdata" / "replica"
+        setup_replication(pg_home_primary, pgdata_primary, args.port,
+                         pg_home_replica, pgdata_replica, args.port + 20)
 
     log.info("✅ Build/init/start completed successfully.")
 
