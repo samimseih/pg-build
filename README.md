@@ -42,6 +42,7 @@ python pg_build.py [OPTIONS]
 | `--force-worktree` | off | Force recreation of worktree even if it exists |
 | `--capture-output` | off | Suppress stdout/stderr from build commands |
 | `--port PORT` | `5432` | Port for the primary instance |
+| `--recreate-activate-script` | off | Only recreate the activation script (cannot be used with other options) |
 
 ## Examples
 
@@ -75,6 +76,15 @@ python pg_build.py --branch master --skip-build
 Force recreation of worktree (useful when switching branches or after manual changes):
 ```bash
 python pg_build.py --branch master --skip-build --force-worktree
+```
+
+Recreate activation script only (useful after changing ports or paths):
+```bash
+python pg_build.py --prefix ~/pgdev/installations --recreate-activate-script --port 5432
+
+# For a named worktree instance
+python pg_build.py --prefix ~/pgdev/installations --recreate-activate-script \
+  --worktree-name pghome_v18 --port 5433
 ```
 
 ## Directory Layout

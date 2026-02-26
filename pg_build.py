@@ -381,10 +381,16 @@ def build_instance(pg_home: Path,
     env = os.environ.copy()
     env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
 
-    # PGDATA & activation script
-    pgdata_dir = prefix / "pgdata" / name
+    # PGDATA & activation script - use worktree_name for unique data directory
+    if args.worktree_name:
+        pgdata_name = f"{args.worktree_name}_{name}"
+    else:
+        pgdata_name = name
+
+    pgdata_dir = prefix / "pgdata" / pgdata_name
     script_file = prefix / f"activate_{name}.sh"
-    activate_script(pg_home, pgdata_dir, port, script_file, source_path, worktree_name=args.worktree_name)
+    pg_bsd_indent_path = source_path / "src/tools/pg_bsd_indent"
+    activate_script(pg_home, pgdata_dir, port, script_file, pg_bsd_indent_path, worktree_name=args.worktree_name)
 
     # Stop & clean PGDATA
     stop_postgres(pg_home, pgdata_dir, port)
@@ -429,19 +435,50 @@ def main():
                         help="Suppress stdout/stderr from build commands")
     parser.add_argument("--port", type=int, default=5432,
                         help="Port for the primary instance (default: 5432)")
+    parser.add_argument("--recreate-activate-script", action="store_true",
+                        help="Only recreate the activation script (cannot be used with other options)")
 
     global args
     args = parser.parse_args()
 
     global prefix
+    global source_dir
+
+    # Check for mutually exclusive option
+    if args.recreate_activate_script:
+        if (args.create_fdw or args.create_replica or args.skip_build or
+            args.force_worktree or args.patch):
+            parser.error("--recreate-activate-script cannot be used with other build options")
+
+        # Recreate activation script only
+        prefix = args.prefix.expanduser().resolve()
+
+        if args.worktree_name:
+            pg_home = prefix / f"pghome_{args.worktree_name}_primary"
+            worktree_dir = prefix / "worktrees" / f"{args.worktree_name}_primary"
+            pgdata_dir = prefix / "pgdata" / f"{args.worktree_name}_primary"
+        else:
+            pg_home = prefix / "pghome_primary"
+            worktree_dir = prefix / "worktrees" / "src_primary"
+            pgdata_dir = prefix / "pgdata" / "primary"
+        script_file = prefix / f"activate_primary.sh"
+        pg_bsd_indent_path = worktree_dir / "src/tools/pg_bsd_indent"
+
+        activate_script(pg_home, pgdata_dir, args.port, script_file, pg_bsd_indent_path,
+                        worktree_name=args.worktree_name)
+        log.info("✅ Activation script recreated successfully.")
+        return
+
     prefix = args.prefix.expanduser().resolve()
     prefix.mkdir(parents=True, exist_ok=True)
 
-    global source_dir
     source_dir = prefix / "source"
 
-    # Primary
-    pg_home_primary = prefix / "pghome_primary"
+    # Primary - use worktree_name if provided
+    if args.worktree_name:
+        pg_home_primary = prefix / f"pghome_{args.worktree_name}_primary"
+    else:
+        pg_home_primary = prefix / "pghome_primary"
     build_instance(pg_home_primary, args.branch, args.tag, "primary", args.port, skip_build=args.skip_build)
 
     # FDW
