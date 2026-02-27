@@ -134,8 +134,8 @@ This exports `PGHOME`, `PGDATA`, `PGPORT`, `PATH`, `LD_LIBRARY_PATH`, and severa
 
 ## Notes
 
-- Each run **destroys and recreates** the worktree, build, and data directory for the affected instances. It is not intended for production use.
-- By default with `--skip-build`, existing worktrees are reused for efficiency. Use `--force-worktree` to recreate them.
+- Each run **destroys and recreates** the build directory and data directory for the affected instances. It is not intended for production use.
+- Worktrees are preserved by default for efficiency. Use `--force-worktree` to recreate them (useful when switching branches or after manual changes).
 - The script stops any existing PostgreSQL process on the target port before reinitializing.
 - `--patch` accepts a glob pattern; patches are applied in sorted order.
 - Both `--branch` and `--tag` are mapped to `origin/<ref>` when creating the worktree.
