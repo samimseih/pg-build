@@ -454,11 +454,11 @@ def main():
         prefix = args.prefix.expanduser().resolve()
 
         if args.worktree_name:
-            pg_home = prefix / f"pghome_{args.worktree_name}_primary"
+            pg_home = prefix / "pghome" / f"{args.worktree_name}_primary"
             worktree_dir = prefix / "worktrees" / f"{args.worktree_name}_primary"
             pgdata_dir = prefix / "pgdata" / f"{args.worktree_name}_primary"
         else:
-            pg_home = prefix / "pghome_primary"
+            pg_home = prefix / "pghome" / "primary"
             worktree_dir = prefix / "worktrees" / "src_primary"
             pgdata_dir = prefix / "pgdata" / "primary"
         script_file = prefix / f"activate_primary.sh"
@@ -476,19 +476,19 @@ def main():
 
     # Primary - use worktree_name if provided
     if args.worktree_name:
-        pg_home_primary = prefix / f"pghome_{args.worktree_name}_primary"
+        pg_home_primary = prefix / "pghome" / f"{args.worktree_name}_primary"
     else:
-        pg_home_primary = prefix / "pghome_primary"
+        pg_home_primary = prefix / "pghome" / "primary"
     build_instance(pg_home_primary, args.branch, args.tag, "primary", args.port, skip_build=args.skip_build)
 
     # FDW
     if args.create_fdw:
-        pg_home_fdw = prefix / "pghome_fdw"
+        pg_home_fdw = prefix / "pghome" / "fdw"
         build_instance(pg_home_fdw, args.branch, args.tag, "fdw", args.port + 10, skip_build=args.skip_build, force_worktree=True)
 
     # Replica
     if args.create_replica:
-        pg_home_replica = prefix / "pghome_replica"
+        pg_home_replica = prefix / "pghome" / "replica"
         build_instance(pg_home_replica, args.branch, args.tag, "replica", args.port + 20, skip_build=args.skip_build, force_worktree=True)
 
         # Setup replication between primary and replica

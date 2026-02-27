@@ -96,13 +96,26 @@ After running, the `--prefix` directory will contain:
 ├── source/                  # Cloned repository
 ├── worktrees/
 │   └── src_primary/         # Git worktree for the primary build
-├── pghome_primary/          # Installed PostgreSQL binaries
+├── pghome/                  # PostgreSQL installations
+│   └── primary/             # Installed PostgreSQL binaries
 ├── pgdata/
 │   └── primary/             # Initialized data directory
 └── activate_primary.sh      # Shell activation script
 ```
 
-With `--create-fdw` or `--create-replica`, additional `pghome_fdw/`, `pghome_replica/`, `pgdata/fdw/`, `pgdata/replica/`, and corresponding activation scripts are created.
+With `--create-fdw` or `--create-replica`, additional `pghome/fdw/`, `pghome/replica/`, `pgdata/fdw/`, `pgdata/replica/`, and corresponding activation scripts are created.
+
+With `--worktree-name`, the structure uses the provided name:
+```
+<prefix>/
+├── worktrees/
+│   └── multixact_primary/   # Named worktree
+├── pghome/
+│   └── multixact_primary/   # Named installation
+├── pgdata/
+│   └── multixact_primary/   # Named data directory
+└── activate_primary_multixact.sh
+```
 
 ## Activation Scripts
 
