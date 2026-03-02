@@ -43,6 +43,7 @@ python pg_build.py [OPTIONS]
 | `--capture-output` | off | Suppress stdout/stderr from build commands |
 | `--port PORT` | `5432` | Port for the primary instance |
 | `-l, --list-worktrees` | — | List existing worktrees and exit |
+| `--clean-worktrees` | — | Delete all worktrees and exit |
 | `--recreate-activate-script` | off | Only recreate the activation script (cannot be used with other options) |
 
 ## Examples
@@ -79,6 +80,11 @@ List all existing worktrees:
 python pg_build.py -l
 # or
 python pg_build.py --list-worktrees
+```
+
+Delete all worktrees:
+```bash
+python pg_build.py --clean-worktrees
 ```
 
 Force recreation of worktree (useful when switching branches or after manual changes):

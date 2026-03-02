@@ -403,6 +403,47 @@ def build_instance(pg_home: Path,
     start_db(pg_home, pgdata_dir, env)
 
 # -----------------------------
+# Clean worktrees
+# -----------------------------
+def clean_worktrees(prefix: Path):
+    worktrees_dir = prefix / "worktrees"
+    source_dir = prefix / "source"
+
+    if not worktrees_dir.exists():
+        log.info("📂 No worktrees directory found.")
+        return
+
+    worktrees = [w for w in worktrees_dir.iterdir() if w.is_dir()]
+
+    if not worktrees:
+        log.info("📂 No worktrees to clean.")
+        return
+
+    log.info(f"🧹 Cleaning {len(worktrees)} worktree(s)...")
+
+    # Remove worktrees from git
+    if source_dir.exists():
+        for worktree in worktrees:
+            log.info(f"  Removing {worktree.name}")
+            try:
+                run(["git", "worktree", "remove", "--force", str(worktree)],
+                    cwd=source_dir, check=False)
+            except Exception as e:
+                log.info(f"    Warning: {e}")
+
+        # Prune worktree references
+        try:
+            run(["git", "worktree", "prune"], cwd=source_dir, check=False)
+        except Exception:
+            pass
+
+    # Remove worktrees directory
+    if worktrees_dir.exists():
+        shutil.rmtree(worktrees_dir, ignore_errors=True)
+
+    log.info("✅ Worktrees cleaned.")
+
+# -----------------------------
 # List worktrees
 # -----------------------------
 def list_worktrees(prefix: Path):
@@ -500,6 +541,8 @@ def main():
                         help="Port for the primary instance (default: 5432)")
     parser.add_argument("-l", "--list-worktrees", action="store_true",
                         help="List existing worktrees and exit")
+    parser.add_argument("--clean-worktrees", action="store_true",
+                        help="Delete all worktrees and exit")
     parser.add_argument("--recreate-activate-script", action="store_true",
                         help="Only recreate the activation script (cannot be used with other options)")
 
@@ -513,11 +556,22 @@ def main():
     if args.list_worktrees:
         if (args.create_fdw or args.create_replica or args.skip_build or
             args.force_worktree or args.patch or args.recreate_activate_script or
-            args.branch or args.tag):
+            args.branch or args.tag or args.clean_worktrees):
             parser.error("-l/--list-worktrees cannot be used with other options")
 
         prefix = args.prefix.expanduser().resolve()
         list_worktrees(prefix)
+        return
+
+    # Handle clean-worktrees flag (must be used alone)
+    if args.clean_worktrees:
+        if (args.create_fdw or args.create_replica or args.skip_build or
+            args.force_worktree or args.patch or args.recreate_activate_script or
+            args.branch or args.tag or args.list_worktrees):
+            parser.error("--clean-worktrees cannot be used with other options")
+
+        prefix = args.prefix.expanduser().resolve()
+        clean_worktrees(prefix)
         return
 
     # Check for mutually exclusive option
