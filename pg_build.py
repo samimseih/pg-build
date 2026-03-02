@@ -403,6 +403,69 @@ def build_instance(pg_home: Path,
     start_db(pg_home, pgdata_dir, env)
 
 # -----------------------------
+# List worktrees
+# -----------------------------
+def list_worktrees(prefix: Path):
+    worktrees_dir = prefix / "worktrees"
+    pgdata_dir = prefix / "pgdata"
+    pghome_dirs = list(prefix.glob("pghome_*"))
+
+    if not worktrees_dir.exists() or not any(worktrees_dir.iterdir()):
+        log.info("📂 No worktrees found.")
+        return
+
+    log.info("📂 Existing worktrees:\n")
+
+    for worktree in sorted(worktrees_dir.iterdir()):
+        if not worktree.is_dir():
+            continue
+
+        name = worktree.name
+        instance_name = name.replace("src_", "")
+
+        # Check if corresponding pghome exists
+        pghome = prefix / f"pghome_{instance_name}"
+        pghome_exists = pghome.exists()
+
+        # Check if pgdata exists
+        pgdata = pgdata_dir / instance_name
+        pgdata_exists = pgdata.exists()
+
+        # Get git branch info
+        try:
+            result = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=worktree,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            branch = result.stdout.strip() or "detached HEAD"
+        except Exception:
+            branch = "unknown"
+
+        # Get last commit
+        try:
+            result = subprocess.run(
+                ["git", "log", "-1", "--oneline"],
+                cwd=worktree,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            commit = result.stdout.strip()
+        except Exception:
+            commit = "unknown"
+
+        log.info(f"  {name}")
+        log.info(f"    Path: {worktree}")
+        log.info(f"    Branch: {branch}")
+        log.info(f"    Commit: {commit}")
+        log.info(f"    Built: {'✓' if pghome_exists else '✗'}")
+        log.info(f"    DB initialized: {'✓' if pgdata_exists else '✗'}")
+        log.info("")
+
+# -----------------------------
 # Main
 # -----------------------------
 def main():
@@ -435,6 +498,8 @@ def main():
                         help="Suppress stdout/stderr from build commands")
     parser.add_argument("--port", type=int, default=5432,
                         help="Port for the primary instance (default: 5432)")
+    parser.add_argument("-l", "--list-worktrees", action="store_true",
+                        help="List existing worktrees and exit")
     parser.add_argument("--recreate-activate-script", action="store_true",
                         help="Only recreate the activation script (cannot be used with other options)")
 
@@ -443,6 +508,17 @@ def main():
 
     global prefix
     global source_dir
+
+    # Handle list-worktrees flag (must be used alone)
+    if args.list_worktrees:
+        if (args.create_fdw or args.create_replica or args.skip_build or
+            args.force_worktree or args.patch or args.recreate_activate_script or
+            args.branch or args.tag):
+            parser.error("-l/--list-worktrees cannot be used with other options")
+
+        prefix = args.prefix.expanduser().resolve()
+        list_worktrees(prefix)
+        return
 
     # Check for mutually exclusive option
     if args.recreate_activate_script:

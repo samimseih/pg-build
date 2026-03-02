@@ -42,6 +42,7 @@ python pg_build.py [OPTIONS]
 | `--force-worktree` | off | Force recreation of worktree even if it exists |
 | `--capture-output` | off | Suppress stdout/stderr from build commands |
 | `--port PORT` | `5432` | Port for the primary instance |
+| `-l, --list-worktrees` | — | List existing worktrees and exit |
 | `--recreate-activate-script` | off | Only recreate the activation script (cannot be used with other options) |
 
 ## Examples
@@ -71,6 +72,13 @@ python pg_build.py --branch master --create-fdw --create-replica
 Re-initialize the database without rebuilding:
 ```bash
 python pg_build.py --branch master --skip-build
+```
+
+List all existing worktrees:
+```bash
+python pg_build.py -l
+# or
+python pg_build.py --list-worktrees
 ```
 
 Force recreation of worktree (useful when switching branches or after manual changes):
