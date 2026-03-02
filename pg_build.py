@@ -403,6 +403,34 @@ def build_instance(pg_home: Path,
     start_db(pg_home, pgdata_dir, env)
 
 # -----------------------------
+# Update source repository
+# -----------------------------
+def update_source(prefix: Path):
+    source_dir = prefix / "source"
+
+    if not source_dir.exists():
+        log.info("📂 No source directory found.")
+        return
+
+    if not (source_dir / ".git").exists():
+        log.info("❌ Source directory is not a git repository.")
+        return
+
+    log.info("🔄 Updating source repository...")
+
+    try:
+        # Fetch from all remotes
+        run(["git", "fetch", "--all"], cwd=source_dir)
+
+        # Prune stale remote branches
+        run(["git", "remote", "prune", "origin"], cwd=source_dir, check=False)
+        run(["git", "remote", "prune", "upstream"], cwd=source_dir, check=False)
+
+        log.info("✅ Source repository updated.")
+    except Exception as e:
+        log.info(f"❌ Failed to update source: {e}")
+
+# -----------------------------
 # Clean worktrees
 # -----------------------------
 def clean_worktrees(prefix: Path):
@@ -543,6 +571,8 @@ def main():
                         help="List existing worktrees and exit")
     parser.add_argument("--clean-worktrees", action="store_true",
                         help="Delete all worktrees and exit")
+    parser.add_argument("--update-source", action="store_true",
+                        help="Fetch latest changes from all remotes in source directory and exit")
     parser.add_argument("--recreate-activate-script", action="store_true",
                         help="Only recreate the activation script (cannot be used with other options)")
 
@@ -556,7 +586,7 @@ def main():
     if args.list_worktrees:
         if (args.create_fdw or args.create_replica or args.skip_build or
             args.force_worktree or args.patch or args.recreate_activate_script or
-            args.branch or args.tag or args.clean_worktrees):
+            args.branch or args.tag or args.clean_worktrees or args.update_source):
             parser.error("-l/--list-worktrees cannot be used with other options")
 
         prefix = args.prefix.expanduser().resolve()
@@ -567,11 +597,22 @@ def main():
     if args.clean_worktrees:
         if (args.create_fdw or args.create_replica or args.skip_build or
             args.force_worktree or args.patch or args.recreate_activate_script or
-            args.branch or args.tag or args.list_worktrees):
+            args.branch or args.tag or args.list_worktrees or args.update_source):
             parser.error("--clean-worktrees cannot be used with other options")
 
         prefix = args.prefix.expanduser().resolve()
         clean_worktrees(prefix)
+        return
+
+    # Handle update-source flag (must be used alone)
+    if args.update_source:
+        if (args.create_fdw or args.create_replica or args.skip_build or
+            args.force_worktree or args.patch or args.recreate_activate_script or
+            args.branch or args.tag or args.list_worktrees or args.clean_worktrees):
+            parser.error("--update-source cannot be used with other options")
+
+        prefix = args.prefix.expanduser().resolve()
+        update_source(prefix)
         return
 
     # Check for mutually exclusive option

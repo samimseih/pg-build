@@ -44,6 +44,7 @@ python pg_build.py [OPTIONS]
 | `--port PORT` | `5432` | Port for the primary instance |
 | `-l, --list-worktrees` | — | List existing worktrees and exit |
 | `--clean-worktrees` | — | Delete all worktrees and exit |
+| `--update-source` | — | Fetch latest changes from all remotes in source directory and exit |
 | `--recreate-activate-script` | off | Only recreate the activation script (cannot be used with other options) |
 
 ## Examples
@@ -85,6 +86,11 @@ python pg_build.py --list-worktrees
 Delete all worktrees:
 ```bash
 python pg_build.py --clean-worktrees
+```
+
+Update source repository (fetch latest from all remotes):
+```bash
+python pg_build.py --update-source
 ```
 
 Force recreation of worktree (useful when switching branches or after manual changes):
