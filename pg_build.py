@@ -84,6 +84,7 @@ def setup_worktree(repo_root: Path,
                    worktree_dir: Path,
                    branch: Optional[str],
                    tag: Optional[str],
+                   commit: Optional[str],
                    repo_url: str) -> Path:
     repo_root = repo_root.resolve()
     worktree_dir = worktree_dir.resolve()
@@ -105,9 +106,9 @@ def setup_worktree(repo_root: Path,
         run(["git", "remote", "add", "upstream", repo_url], cwd=repo_root)
         run(["git", "fetch", "upstream"], cwd=repo_root)
 
-    checkout_ref = branch or tag
+    checkout_ref = branch or tag or commit
     if not checkout_ref:
-        log.error("❌ Must supply branch or tag.")
+        log.error("❌ Must supply branch, tag, or commit.")
         sys.exit(1)
 
     # Ensure repo is ready
@@ -134,7 +135,10 @@ def setup_worktree(repo_root: Path,
         if line.startswith("branch refs/heads/"):
             branches_in_use.add(line.split("/")[-1])
 
-    if checkout_ref in branches_in_use:
+    # For commits, create detached HEAD worktree
+    if commit:
+        run(["git", "worktree", "add", "--detach", str(worktree_dir), checkout_ref], cwd=repo_root)
+    elif checkout_ref in branches_in_use:
         unique_branch = f"{checkout_ref}_{worktree_dir.name}"
         log.info(f"⚠️ Branch {checkout_ref} is already used in another worktree, creating unique branch: {unique_branch}")
 
@@ -343,6 +347,7 @@ def setup_replication(primary_home: Path, primary_data: Path, primary_port: int,
 def build_instance(pg_home: Path,
                    branch: Optional[str],
                    tag: Optional[str],
+                   commit: Optional[str],
                    name: str,
                    port: int,
                    skip_build: bool = False,
@@ -355,10 +360,15 @@ def build_instance(pg_home: Path,
 
     # Setup worktree if needed
     if not worktree_dir.exists() or (not skip_build and force_worktree) or args.force_worktree:
-        source_path = setup_worktree(source_dir, worktree_dir, branch, tag, args.repo_url)
+        source_path = setup_worktree(source_dir, worktree_dir, branch, tag, args.commit, args.repo_url)
     else:
         source_path = worktree_dir
         log.info(f"⏭️  Using existing worktree at {source_path}")
+
+    # If worktree-only, stop here
+    if args.worktree_only:
+        log.info(f"✅ Worktree created at {source_path}")
+        return
 
     # Apply patches
     if args.patch and not skip_build:
@@ -544,9 +554,11 @@ def main():
     parser.add_argument("--repo-url", type=str, default="https://github.com/postgres/postgres.git",
                         help="Git repository URL to clone from")
     parser.add_argument("--branch", type=str,
-                        help="Branch to check out (required if --tag not set)")
+                        help="Branch to check out (mutually exclusive with --tag and --commit)")
     parser.add_argument("--tag", type=str,
-                        help="Tag to check out (required if --branch not set)")
+                        help="Tag to check out (mutually exclusive with --branch and --commit)")
+    parser.add_argument("--commit", type=str,
+                        help="Commit hash to check out (mutually exclusive with --branch and --tag)")
     parser.add_argument("--patch", type=str,
                         help="Glob pattern of .patch files to apply via git am")
     parser.add_argument("--meson-flags", type=str,
@@ -561,6 +573,8 @@ def main():
                         help="Also build and start a replica instance (port + 20)")
     parser.add_argument("--skip-build", action="store_true",
                         help="Skip the build step (re-init DB only)")
+    parser.add_argument("--worktree-only", action="store_true",
+                        help="Only create worktree, skip build and DB initialization")
     parser.add_argument("--force-worktree", action="store_true",
                         help="Force recreation of worktree even if it exists")
     parser.add_argument("--capture-output", action="store_true",
@@ -645,22 +659,29 @@ def main():
 
     source_dir = prefix / "source"
 
+    # Validate mutually exclusive options
+    ref_count = sum([bool(args.branch), bool(args.tag), bool(args.commit)])
+    if ref_count == 0:
+        parser.error("One of --branch, --tag, or --commit is required")
+    if ref_count > 1:
+        parser.error("--branch, --tag, and --commit are mutually exclusive")
+
     # Primary - use worktree_name if provided
     if args.worktree_name:
         pg_home_primary = prefix / "pghome" / f"{args.worktree_name}_primary"
     else:
         pg_home_primary = prefix / "pghome" / "primary"
-    build_instance(pg_home_primary, args.branch, args.tag, "primary", args.port, skip_build=args.skip_build)
+    build_instance(pg_home_primary, args.branch, args.tag, args.commit, "primary", args.port, skip_build=args.skip_build)
 
     # FDW
     if args.create_fdw:
         pg_home_fdw = prefix / "pghome" / "fdw"
-        build_instance(pg_home_fdw, args.branch, args.tag, "fdw", args.port + 10, skip_build=args.skip_build, force_worktree=True)
+        build_instance(pg_home_fdw, args.branch, args.tag, args.commit, "fdw", args.port + 10, skip_build=args.skip_build, force_worktree=True)
 
     # Replica
     if args.create_replica:
         pg_home_replica = prefix / "pghome" / "replica"
-        build_instance(pg_home_replica, args.branch, args.tag, "replica", args.port + 20, skip_build=args.skip_build, force_worktree=True)
+        build_instance(pg_home_replica, args.branch, args.tag, args.commit, "replica", args.port + 20, skip_build=args.skip_build, force_worktree=True)
 
         # Setup replication between primary and replica
         pgdata_primary = prefix / "pgdata" / "primary"

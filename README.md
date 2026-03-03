@@ -30,8 +30,9 @@ python pg_build.py [OPTIONS]
 |---|---|---|
 | `--prefix PATH` | `~/pgdev/installations` | Root directory for all build artifacts, data, and scripts |
 | `--repo-url URL` | PostgreSQL GitHub mirror | Git URL to clone from |
-| `--branch NAME` | — | Branch to check out (required if `--tag` not set) |
-| `--tag NAME` | — | Tag to check out (required if `--branch` not set) |
+| `--branch NAME` | — | Branch to check out (mutually exclusive with --tag and --commit) |
+| `--tag NAME` | — | Tag to check out (mutually exclusive with --branch and --commit) |
+| `--commit HASH` | — | Commit hash to check out (mutually exclusive with --branch and --tag) |
 | `--patch GLOB` | — | Glob pattern of `.patch` files to apply via `git am` |
 | `--meson-flags FLAGS` | — | Extra flags passed to `meson setup` |
 | `--build-system` | `meson` | Build system to use: `meson` or `make` |
@@ -39,6 +40,7 @@ python pg_build.py [OPTIONS]
 | `--create-fdw` | off | Also build and start an FDW instance (port + 10) |
 | `--create-replica` | off | Also build and start a replica instance (port + 20) |
 | `--skip-build` | off | Skip the build step (re-init DB only) |
+| `--worktree-only` | off | Only create worktree, skip build and DB initialization |
 | `--force-worktree` | off | Force recreation of worktree even if it exists |
 | `--capture-output` | off | Suppress stdout/stderr from build commands |
 | `--port PORT` | `5432` | Port for the primary instance |
@@ -57,6 +59,11 @@ python pg_build.py --branch master
 Build a specific release tag with a custom prefix:
 ```bash
 python pg_build.py --tag REL_16_0 --prefix ~/pg/16
+```
+
+Build from a specific commit hash:
+```bash
+python pg_build.py --commit abc123def456
 ```
 
 Build with Meson flags and apply a patch:
@@ -86,6 +93,11 @@ python pg_build.py --list-worktrees
 Delete all worktrees:
 ```bash
 python pg_build.py --clean-worktrees
+```
+
+Create worktree only (no build or DB init):
+```bash
+python pg_build.py --branch master --worktree-only
 ```
 
 Update source repository (fetch latest from all remotes):

@@ -9,8 +9,8 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 
-# If -l, --list-worktrees, or --clean-worktrees is passed, run it directly without other args
-if [[ "$*" == *"-l"* ]] || [[ "$*" == *"--list-worktrees"* ]] || [[ "$*" == *"--clean-worktrees"* ]]; then
+# If -l, --list-worktrees, --clean-worktrees, or --commit is passed, run it directly without other args
+if [[ "$*" == *"-l"* ]] || [[ "$*" == *"--list-worktrees"* ]] || [[ "$*" == *"--clean-worktrees"* ]] || [[ "$*" == *"--commit"* ]] || [[ "$*" == *"--tag"* ]]; then
   python3 $SCRIPT_DIR/pg_build.py "$@"
 else
   python3 $SCRIPT_DIR/pg_build.py \
