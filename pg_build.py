@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 # -----------------------------
 def run(command: Union[str, list], **kwargs) -> subprocess.CompletedProcess:
     if isinstance(command, list):
-        log.info(f"🔀 {shlex.join(command)}")
+        log.info(f"🔀 {' '.join(shlex.quote(str(c)) for c in command)}")
     else:
         log.info(f"🔀 {command}")
 
