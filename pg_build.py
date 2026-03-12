@@ -482,6 +482,18 @@ def clean_worktrees(prefix: Path):
 
     log.info(f"🧹 Cleaning {len(worktrees)} worktree(s)...")
 
+    # Stop any running clusters before cleanup
+    for worktree in worktrees:
+        wt_name = worktree.name
+        inst_name = wt_name.replace("src_", "", 1) if wt_name.startswith("src_") else wt_name
+        pghome_dir = prefix / "pghome" / inst_name
+        pgdata_dir = prefix / "pgdata" / inst_name
+        if pgdata_dir.exists():
+            pg_ctl = pghome_dir / "bin" / "pg_ctl"
+            if pg_ctl.exists() and (pgdata_dir / "postmaster.pid").exists():
+                log.info(f"  Stopping cluster at {pgdata_dir}...")
+                run([str(pg_ctl), "-D", str(pgdata_dir), "stop", "-m", "fast"], check=False)
+
     # Remove worktrees from git
     if source_dir.exists():
         for worktree in worktrees:
@@ -529,6 +541,15 @@ def remove_worktree(prefix: Path, worktree_name: str):
     # Fallback: remove directory if git worktree remove didn't
     if worktree_dir.exists():
         shutil.rmtree(worktree_dir, ignore_errors=True)
+
+    # Stop the cluster if it is running
+    pghome_dir = prefix / "pghome" / instance_name
+    pgdata_dir = prefix / "pgdata" / instance_name
+    if pgdata_dir.exists():
+        pg_ctl = pghome_dir / "bin" / "pg_ctl"
+        if pg_ctl.exists() and (pgdata_dir / "postmaster.pid").exists():
+            log.info(f"  Stopping cluster at {pgdata_dir}...")
+            run([str(pg_ctl), "-D", str(pgdata_dir), "stop", "-m", "fast"], check=False)
 
     # Remove pghome
     pghome_dir = prefix / "pghome" / instance_name
