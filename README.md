@@ -199,17 +199,17 @@ This exports `PGHOME`, `PGDATA`, `PGPORT`, `PATH`, `LD_LIBRARY_PATH`, and severa
 
 ## patch_download.py
 
-A helper script to download patch files from the [PostgreSQL Commitfest](https://commitfest.postgresql.org/) by entry ID and filename prefix.
+A helper script to download patch files from the [PostgreSQL Commitfest](https://commitfest.postgresql.org/) by entry ID (or full URL) and filename prefix.
 
 ### Usage
 
 ```bash
-python patch_download.py <cfentry> <prefix> [download_dir]
+python patch_download.py <cfentry_or_url> <prefix> [download_dir]
 ```
 
 | Argument | Required | Default | Description |
 |---|---|---|---|
-| `cfentry` | yes | — | Commitfest patch entry ID |
+| `cfentry_or_url` | yes | — | Commitfest patch entry ID or full commitfest URL |
 | `prefix` | yes | — | Filename prefix to match (only links whose filename starts with this are downloaded) |
 | `download_dir` | no | `~/Downloads` | Directory to save downloaded patches |
 
@@ -218,6 +218,11 @@ python patch_download.py <cfentry> <prefix> [download_dir]
 Download patches from commitfest entry 5338 matching prefix `v3-`:
 ```bash
 python patch_download.py 5338 v3-
+```
+
+Download using a full commitfest URL:
+```bash
+python patch_download.py https://commitfest.postgresql.org/patch/5338 v3-
 ```
 
 Download to a custom directory:

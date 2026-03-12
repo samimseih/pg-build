@@ -25,7 +25,7 @@ class LinkParser(HTMLParser):
                 if k == "href":
                     self.links.append(v)
 
-url = f"https://commitfest.postgresql.org/patch/{cfentry}"
+url = cfentry if cfentry.startswith("http") else f"https://commitfest.postgresql.org/patch/{cfentry}"
 html = urlopen(url).read().decode()
 parser = LinkParser()
 parser.feed(html)
