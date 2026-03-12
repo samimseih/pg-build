@@ -46,6 +46,7 @@ python pg_build.py [OPTIONS]
 | `--port PORT` | `5432` | Port for the primary instance |
 | `-l, --list-worktrees` | — | List existing worktrees and exit |
 | `--clean-worktrees` | — | Delete all worktrees and exit |
+| `--remove-worktree NAME` | — | Remove a single worktree by name (as shown by `--list-worktrees`) and exit |
 | `--update-source` | — | Fetch latest changes from all remotes in source directory and exit |
 | `--recreate-activate-script` | off | Only recreate the activation script (cannot be used with other options) |
 | `--continue` | off | Continue a previously failed `git am` and proceed with the build |
@@ -107,6 +108,11 @@ python pg_build.py --list-worktrees
 Delete all worktrees:
 ```bash
 python pg_build.py --clean-worktrees
+```
+
+Remove a single worktree (and its pghome, pgdata, and activation scripts):
+```bash
+python pg_build.py --remove-worktree src_primary
 ```
 
 Create worktree only (no build or DB init):

@@ -505,6 +505,51 @@ def clean_worktrees(prefix: Path):
     log.info("✅ Worktrees cleaned.")
 
 # -----------------------------
+# Remove a single worktree
+# -----------------------------
+def remove_worktree(prefix: Path, worktree_name: str):
+    source_dir = prefix / "source"
+    worktree_dir = prefix / "worktrees" / worktree_name
+
+    if not worktree_dir.exists():
+        log.error(f"❌ Worktree not found: {worktree_dir}")
+        sys.exit(1)
+
+    # Derive instance name (strip "src_" prefix if present)
+    instance_name = worktree_name.replace("src_", "", 1) if worktree_name.startswith("src_") else worktree_name
+
+    log.info(f"🗑️  Removing worktree: {worktree_name}")
+
+    # Remove git worktree
+    if source_dir.exists():
+        run(["git", "worktree", "remove", "--force", str(worktree_dir)],
+            cwd=source_dir, check=False)
+        run(["git", "worktree", "prune"], cwd=source_dir, check=False)
+
+    # Fallback: remove directory if git worktree remove didn't
+    if worktree_dir.exists():
+        shutil.rmtree(worktree_dir, ignore_errors=True)
+
+    # Remove pghome
+    pghome_dir = prefix / "pghome" / instance_name
+    if pghome_dir.exists():
+        log.info(f"  Removing {pghome_dir}")
+        shutil.rmtree(pghome_dir, ignore_errors=True)
+
+    # Remove pgdata
+    pgdata_dir = prefix / "pgdata" / instance_name
+    if pgdata_dir.exists():
+        log.info(f"  Removing {pgdata_dir}")
+        shutil.rmtree(pgdata_dir, ignore_errors=True)
+
+    # Remove activate scripts matching this instance
+    for script in prefix.glob(f"activate_*{instance_name}*.sh"):
+        log.info(f"  Removing {script}")
+        script.unlink()
+
+    log.info(f"✅ Worktree '{worktree_name}' removed.")
+
+# -----------------------------
 # List worktrees
 # -----------------------------
 def list_worktrees(prefix: Path):
@@ -608,6 +653,8 @@ def main():
                         help="List existing worktrees and exit")
     parser.add_argument("--clean-worktrees", action="store_true",
                         help="Delete all worktrees and exit")
+    parser.add_argument("--remove-worktree", metavar="NAME",
+                        help="Remove a single worktree by name (as shown by --list-worktrees) and exit")
     parser.add_argument("--update-source", action="store_true",
                         help="Fetch latest changes from all remotes in source directory and exit")
     parser.add_argument("--recreate-activate-script", action="store_true",
@@ -625,7 +672,8 @@ def main():
     if args.list_worktrees:
         if (args.create_fdw or args.create_replica or args.skip_build or
             args.force_worktree or args.patch or args.recreate_activate_script or
-            args.branch or args.tag or args.clean_worktrees or args.update_source):
+            args.branch or args.tag or args.clean_worktrees or args.update_source or
+            args.remove_worktree):
             parser.error("-l/--list-worktrees cannot be used with other options")
 
         prefix = args.prefix.expanduser().resolve()
@@ -636,18 +684,32 @@ def main():
     if args.clean_worktrees:
         if (args.create_fdw or args.create_replica or args.skip_build or
             args.force_worktree or args.patch or args.recreate_activate_script or
-            args.branch or args.tag or args.list_worktrees or args.update_source):
+            args.branch or args.tag or args.list_worktrees or args.update_source or
+            args.remove_worktree):
             parser.error("--clean-worktrees cannot be used with other options")
 
         prefix = args.prefix.expanduser().resolve()
         clean_worktrees(prefix)
         return
 
+    # Handle remove-worktree flag (must be used alone)
+    if args.remove_worktree:
+        if (args.create_fdw or args.create_replica or args.skip_build or
+            args.force_worktree or args.patch or args.recreate_activate_script or
+            args.branch or args.tag or args.list_worktrees or args.clean_worktrees or
+            args.update_source):
+            parser.error("--remove-worktree cannot be used with other options")
+
+        prefix = args.prefix.expanduser().resolve()
+        remove_worktree(prefix, args.remove_worktree)
+        return
+
     # Handle update-source flag (must be used alone)
     if args.update_source:
         if (args.create_fdw or args.create_replica or args.skip_build or
             args.force_worktree or args.patch or args.recreate_activate_script or
-            args.branch or args.tag or args.list_worktrees or args.clean_worktrees):
+            args.branch or args.tag or args.list_worktrees or args.clean_worktrees or
+            args.remove_worktree):
             parser.error("--update-source cannot be used with other options")
 
         prefix = args.prefix.expanduser().resolve()
