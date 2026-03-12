@@ -191,6 +191,40 @@ This exports `PGHOME`, `PGDATA`, `PGPORT`, `PATH`, `LD_LIBRARY_PATH`, and severa
 | FDW | `--port + 10` (default 5442) |
 | Replica | `--port + 20` (default 5452) |
 
+## patch_download.py
+
+A helper script to download patch files from the [PostgreSQL Commitfest](https://commitfest.postgresql.org/) by entry ID and filename prefix.
+
+### Usage
+
+```bash
+python patch_download.py <cfentry> <prefix> [download_dir]
+```
+
+| Argument | Required | Default | Description |
+|---|---|---|---|
+| `cfentry` | yes | — | Commitfest patch entry ID |
+| `prefix` | yes | — | Filename prefix to match (only links whose filename starts with this are downloaded) |
+| `download_dir` | no | `~/Downloads` | Directory to save downloaded patches |
+
+### Examples
+
+Download patches from commitfest entry 5338 matching prefix `v3-`:
+```bash
+python patch_download.py 5338 v3-
+```
+
+Download to a custom directory:
+```bash
+python patch_download.py 5338 v3- ~/patches
+```
+
+Combine with `pg_build.py` to download and apply in one go:
+```bash
+python patch_download.py 5338 v3- ~/patches
+python pg_build.py --branch master --patch ~/patches/v3-*.patch
+```
+
 ## Notes
 
 - Each run **destroys and recreates** the build directory and data directory for the affected instances. It is not intended for production use.

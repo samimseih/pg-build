@@ -5,10 +5,10 @@ from urllib.parse import urljoin
 from html.parser import HTMLParser
 
 if len(sys.argv) < 3:
-    print("Usage: python patch_download.py <url> <prefix> [download_dir]")
+    print("Usage: python patch_download.py <cfentry> <prefix> [download_dir]")
     sys.exit(1)
 
-url = sys.argv[1]
+cfentry = sys.argv[1]
 prefix = sys.argv[2]
 download_dir = os.path.expanduser(sys.argv[3]) if len(sys.argv) > 3 else os.path.expanduser("~/Downloads")
 
@@ -25,6 +25,7 @@ class LinkParser(HTMLParser):
                 if k == "href":
                     self.links.append(v)
 
+url = f"https://commitfest.postgresql.org/patch/{cfentry}"
 html = urlopen(url).read().decode()
 parser = LinkParser()
 parser.feed(html)
