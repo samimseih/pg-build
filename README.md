@@ -33,7 +33,7 @@ python pg_build.py [OPTIONS]
 | `--branch NAME` | — | Branch to check out (mutually exclusive with --tag and --commit) |
 | `--tag NAME` | — | Tag to check out (mutually exclusive with --branch and --commit) |
 | `--commit HASH` | — | Commit hash to check out (mutually exclusive with --branch and --tag) |
-| `--patch GLOB` | — | Glob pattern of `.patch` files to apply via `git am` |
+| `--patch FILES` | — | Patch file(s) or glob pattern to apply via `git am --3way` |
 | `--meson-flags FLAGS` | — | Extra flags passed to `meson setup` |
 | `--build-system` | `meson` | Build system to use: `meson` or `make` |
 | `--worktree-name NAME` | — | Optional prefix for naming worktree directories |
@@ -48,6 +48,7 @@ python pg_build.py [OPTIONS]
 | `--clean-worktrees` | — | Delete all worktrees and exit |
 | `--update-source` | — | Fetch latest changes from all remotes in source directory and exit |
 | `--recreate-activate-script` | off | Only recreate the activation script (cannot be used with other options) |
+| `--continue` | off | Continue a previously failed `git am` and proceed with the build |
 
 ## Examples
 
@@ -71,6 +72,19 @@ Build with Meson flags and apply a patch:
 python pg_build.py --branch master \
   --meson-flags "-Dcassert=true -Dtap_tests=enabled" \
   --patch ~/patches/my-feature.patch
+```
+
+Apply multiple patches (shell glob expansion):
+```bash
+python pg_build.py --branch master --patch ~/Downloads/*.patch
+```
+
+If a patch conflict occurs during `--patch`, resolve it manually in the worktree, then resume:
+```bash
+# 1. Fix conflicts in the worktree, then:
+#    git add <resolved files>
+# 2. Continue the build:
+python pg_build.py --continue
 ```
 
 Build primary + FDW + replica instances:
@@ -182,5 +196,5 @@ This exports `PGHOME`, `PGDATA`, `PGPORT`, `PATH`, `LD_LIBRARY_PATH`, and severa
 - Each run **destroys and recreates** the build directory and data directory for the affected instances. It is not intended for production use.
 - Worktrees are preserved by default for efficiency. Use `--force-worktree` to recreate them (useful when switching branches or after manual changes).
 - The script stops any existing PostgreSQL process on the target port before reinitializing.
-- `--patch` accepts a glob pattern; patches are applied in sorted order.
+- `--patch` accepts multiple files or a glob pattern; patches are applied in sorted order via `git am --3way`. If a conflict occurs, resolve it in the worktree and run `--continue` to finish applying remaining patches and proceed with the build.
 - Both `--branch` and `--tag` are mapped to `origin/<ref>` when creating the worktree.

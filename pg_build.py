@@ -372,9 +372,32 @@ def build_instance(pg_home: Path,
 
     # Apply patches
     if args.patch and not skip_build:
-        for patch in sorted(glob.glob(args.patch)):
-            log.info(f"📄 Applying patch {patch}")
-            run(["git", "am", patch], cwd=source_path)
+        # Abort any stale git am session before applying new patches
+        run(["git", "am", "--abort"], cwd=source_path, check=False)
+
+        patch_files = []
+        for p in args.patch:
+            expanded = os.path.expanduser(p)
+            matches = sorted(glob.glob(expanded))
+            if matches:
+                patch_files.extend(matches)
+            else:
+                # No glob match — treat as a literal path
+                patch_files.append(expanded)
+        if not patch_files:
+            log.error(f"❌ No patch files found: {args.patch}")
+            sys.exit(1)
+
+        abs_patches = []
+        for patch in sorted(patch_files):
+            abs_patch = os.path.abspath(patch)
+            if not os.path.isfile(abs_patch):
+                log.error(f"❌ Patch file not found: {abs_patch}")
+                sys.exit(1)
+            abs_patches.append(abs_patch)
+
+        log.info(f"📄 Applying {len(abs_patches)} patch(es) via git am --3way")
+        run(["git", "am", "--3way"] + abs_patches, cwd=source_path)
 
     # Build
     if not skip_build:
@@ -559,8 +582,8 @@ def main():
                         help="Tag to check out (mutually exclusive with --branch and --commit)")
     parser.add_argument("--commit", type=str,
                         help="Commit hash to check out (mutually exclusive with --branch and --tag)")
-    parser.add_argument("--patch", type=str,
-                        help="Glob pattern of .patch files to apply via git am")
+    parser.add_argument("--patch", type=str, nargs="+",
+                        help="Patch file(s) or glob pattern to apply via git am")
     parser.add_argument("--meson-flags", type=str,
                         help="Extra flags passed to meson setup")
     parser.add_argument("--build-system", choices=["meson", "make"], default="meson",
@@ -589,6 +612,8 @@ def main():
                         help="Fetch latest changes from all remotes in source directory and exit")
     parser.add_argument("--recreate-activate-script", action="store_true",
                         help="Only recreate the activation script (cannot be used with other options)")
+    parser.add_argument("--continue", dest="continue_am", action="store_true",
+                        help="Continue a previously failed git am and proceed with the build")
 
     global args
     args = parser.parse_args()
@@ -627,6 +652,66 @@ def main():
 
         prefix = args.prefix.expanduser().resolve()
         update_source(prefix)
+        return
+
+    # Handle --continue: resume git am and proceed with build
+    if args.continue_am:
+        prefix = args.prefix.expanduser().resolve()
+        source_dir = prefix / "source"
+        worktrees_dir = prefix / "worktrees"
+
+        if args.worktree_name:
+            worktree_name_final = f"{args.worktree_name}_primary"
+        else:
+            worktree_name_final = "src_primary"
+        worktree_dir = worktrees_dir / worktree_name_final
+
+        if not worktree_dir.exists():
+            log.error(f"❌ Worktree not found: {worktree_dir}")
+            sys.exit(1)
+
+        log.info(f"▶️  Continuing git am in {worktree_dir}")
+        run(["git", "am", "--continue"], cwd=worktree_dir)
+
+        # Proceed with build
+        if args.worktree_name:
+            pg_home = prefix / "pghome" / f"{args.worktree_name}_primary"
+        else:
+            pg_home = prefix / "pghome" / "primary"
+
+        build_dir = worktree_dir / "build"
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+        cmd = ["meson", "setup", "build", f"--prefix={pg_home}"]
+        if args.meson_flags:
+            cmd.extend(shlex.split(args.meson_flags))
+        run(cmd, cwd=worktree_dir, capture_output=args.capture_output)
+        run(["ninja"], cwd=build_dir, capture_output=args.capture_output)
+        run(["ninja", "install"], cwd=build_dir, capture_output=args.capture_output)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
+
+        if args.worktree_name:
+            pgdata_name = f"{args.worktree_name}_primary"
+        else:
+            pgdata_name = "primary"
+
+        pgdata_dir = prefix / "pgdata" / pgdata_name
+        script_file = prefix / "activate_primary.sh"
+        pg_bsd_indent_path = worktree_dir / "src/tools/pg_bsd_indent"
+        activate_script(pg_home, pgdata_dir, args.port, script_file, pg_bsd_indent_path,
+                        worktree_name=args.worktree_name)
+
+        stop_postgres(pg_home, pgdata_dir, args.port)
+        if pgdata_dir.exists():
+            shutil.rmtree(pgdata_dir)
+        pgdata_dir.mkdir(parents=True, exist_ok=True)
+
+        init_db(pg_home, pgdata_dir, args.port, env)
+        start_db(pg_home, pgdata_dir, env)
+
+        log.info("✅ Continue completed successfully.")
         return
 
     # Check for mutually exclusive option
