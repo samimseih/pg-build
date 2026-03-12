@@ -543,9 +543,14 @@ def remove_worktree(prefix: Path, worktree_name: str):
         shutil.rmtree(pgdata_dir, ignore_errors=True)
 
     # Remove activate scripts matching this instance
-    for script in prefix.glob(f"activate_*{instance_name}*.sh"):
-        log.info(f"  Removing {script}")
-        script.unlink()
+    # The activate script name is activate_{branch}_{worktree}.sh but instance_name
+    # is {worktree}_{branch}, so match scripts containing all underscore-delimited parts.
+    parts = instance_name.split("_")
+    for script in prefix.glob("activate_*.sh"):
+        stem = script.stem  # e.g. "activate_primary_review"
+        if all(p in stem.split("_") for p in parts):
+            log.info(f"  Removing {script}")
+            script.unlink()
 
     log.info(f"✅ Worktree '{worktree_name}' removed.")
 
