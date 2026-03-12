@@ -666,6 +666,8 @@ def main():
                         help="Only recreate the activation script (cannot be used with other options)")
     parser.add_argument("--continue", dest="continue_am", action="store_true",
                         help="Continue a previously failed git am and proceed with the build")
+    parser.add_argument("--indent", choices=["head", "staged", "unstaged"],
+                        help="Run pgindent on files changed in HEAD commit, staged files, or unstaged files")
 
     global args
     args = parser.parse_args()
@@ -719,6 +721,45 @@ def main():
 
         prefix = args.prefix.expanduser().resolve()
         update_source(prefix)
+        return
+
+    # Handle --indent: run pgindent on changed files
+    if args.indent:
+        prefix = args.prefix.expanduser().resolve()
+        worktrees_dir = prefix / "worktrees"
+
+        if args.worktree_name:
+            worktree_name_final = f"{args.worktree_name}_primary"
+        else:
+            worktree_name_final = "src_primary"
+        worktree_dir = worktrees_dir / worktree_name_final
+
+        if not worktree_dir.exists():
+            log.error(f"❌ Worktree not found: {worktree_dir}")
+            sys.exit(1)
+
+        pgindent = worktree_dir / "src/tools/pgindent/pgindent"
+        if not pgindent.exists():
+            log.error(f"❌ pgindent not found: {pgindent}")
+            sys.exit(1)
+
+        if args.indent == "head":
+            diff_cmd = ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]
+        elif args.indent == "staged":
+            diff_cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=d"]
+        else:  # unstaged
+            diff_cmd = ["git", "diff", "--name-only", "--diff-filter=d"]
+
+        result = run(diff_cmd, cwd=worktree_dir, capture_output=True, text=True)
+        files = [f for f in result.stdout.strip().splitlines() if f.endswith((".c", ".h"))]
+
+        if not files:
+            log.info("No .c/.h files found to indent.")
+            return
+
+        log.info(f"Running pgindent on {len(files)} file(s)...")
+        run([str(pgindent)] + files, cwd=worktree_dir)
+        log.info("✅ pgindent completed successfully.")
         return
 
     # Handle --continue: resume git am and proceed with build
