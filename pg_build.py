@@ -519,56 +519,67 @@ def clean_worktrees(prefix: Path):
 # -----------------------------
 # Remove a single worktree
 # -----------------------------
+def resolve_worktree_dirs(prefix: Path, worktree_name: str) -> list:
+    """Resolve a worktree prefix to matching directories under prefix/worktrees."""
+    worktrees_dir = prefix / "worktrees"
+    if not worktrees_dir.exists():
+        return []
+    return sorted([w for w in worktrees_dir.iterdir()
+                   if w.is_dir() and w.name.startswith(worktree_name)])
+
 def remove_worktree(prefix: Path, worktree_name: str):
     source_dir = prefix / "source"
-    worktree_dir = prefix / "worktrees" / worktree_name
 
-    if not worktree_dir.exists():
-        log.error(f"❌ Worktree not found: {worktree_dir}")
+    matching = resolve_worktree_dirs(prefix, worktree_name)
+    if not matching:
+        log.error(f"❌ No worktrees found matching prefix: {worktree_name}")
         sys.exit(1)
 
-    # Derive instance name (strip "src_" prefix if present)
-    instance_name = worktree_name.replace("src_", "", 1) if worktree_name.startswith("src_") else worktree_name
+    for worktree_dir in matching:
+        actual_name = worktree_dir.name
+        # Derive instance name (strip "src_" prefix if present)
+        instance_name = actual_name.replace("src_", "", 1) if actual_name.startswith("src_") else actual_name
 
-    log.info(f"🗑️  Removing worktree: {worktree_name}")
+        log.info(f"🗑️  Removing worktree: {actual_name}")
 
-    # Remove git worktree
-    if source_dir.exists():
-        run(["git", "worktree", "remove", "--force", str(worktree_dir)],
-            cwd=source_dir, check=False)
-        run(["git", "worktree", "prune"], cwd=source_dir, check=False)
+        # Remove git worktree
+        if source_dir.exists():
+            run(["git", "worktree", "remove", "--force", str(worktree_dir)],
+                cwd=source_dir, check=False)
+            run(["git", "worktree", "prune"], cwd=source_dir, check=False)
 
-    # Fallback: remove directory if git worktree remove didn't
-    if worktree_dir.exists():
-        shutil.rmtree(worktree_dir, ignore_errors=True)
+        # Fallback: remove directory if git worktree remove didn't
+        if worktree_dir.exists():
+            shutil.rmtree(worktree_dir, ignore_errors=True)
 
-    # Stop the cluster if it is running
-    pghome_dir = prefix / "pghome" / instance_name
-    pgdata_dir = prefix / "pgdata" / instance_name
-    if pgdata_dir.exists():
-        pg_ctl = pghome_dir / "bin" / "pg_ctl"
-        if pg_ctl.exists() and (pgdata_dir / "postmaster.pid").exists():
-            log.info(f"  Stopping cluster at {pgdata_dir}...")
-            run([str(pg_ctl), "-D", str(pgdata_dir), "stop", "-m", "fast"], check=False)
+        # Stop the cluster if it is running
+        pghome_dir = prefix / "pghome" / instance_name
+        pgdata_dir = prefix / "pgdata" / instance_name
+        if pgdata_dir.exists():
+            pg_ctl = pghome_dir / "bin" / "pg_ctl"
+            if pg_ctl.exists() and (pgdata_dir / "postmaster.pid").exists():
+                log.info(f"  Stopping cluster at {pgdata_dir}...")
+                run([str(pg_ctl), "-D", str(pgdata_dir), "stop", "-m", "fast"], check=False)
 
-    # Remove pghome
-    pghome_dir = prefix / "pghome" / instance_name
-    if pghome_dir.exists():
-        log.info(f"  Removing {pghome_dir}")
-        shutil.rmtree(pghome_dir, ignore_errors=True)
+        # Remove pghome
+        pghome_dir = prefix / "pghome" / instance_name
+        if pghome_dir.exists():
+            log.info(f"  Removing {pghome_dir}")
+            shutil.rmtree(pghome_dir, ignore_errors=True)
 
-    # Remove pgdata
-    pgdata_dir = prefix / "pgdata" / instance_name
-    if pgdata_dir.exists():
-        log.info(f"  Removing {pgdata_dir}")
-        shutil.rmtree(pgdata_dir, ignore_errors=True)
+        # Remove pgdata
+        pgdata_dir = prefix / "pgdata" / instance_name
+        if pgdata_dir.exists():
+            log.info(f"  Removing {pgdata_dir}")
+            shutil.rmtree(pgdata_dir, ignore_errors=True)
 
-    # Remove activate scripts for this instance (activate_{instance_name}.sh)
-    for script in prefix.glob(f"activate_{instance_name}.sh"):
-        log.info(f"  Removing {script}")
-        script.unlink()
+        # Remove activate scripts for this instance
+        # Scripts are named activate_{name}_{worktree_name}.sh (e.g. activate_primary_test.sh)
+        for script in prefix.glob(f"activate_*_{worktree_name}.sh"):
+            log.info(f"  Removing {script}")
+            script.unlink()
 
-    log.info(f"✅ Worktree '{worktree_name}' removed.")
+        log.info(f"✅ Worktree '{actual_name}' removed.")
 
 # -----------------------------
 # List worktrees
