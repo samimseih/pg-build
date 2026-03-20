@@ -37,7 +37,7 @@ python pg_build.py [OPTIONS]
 | `--meson-flags FLAGS` | — | Extra flags passed to `meson setup` |
 | `--build-system` | `meson` | Build system to use: `meson` or `make` |
 | `--worktree-name NAME` | — | **Required.** Name for the worktree, installation, data directory, and activation script |
-| `--create-pg-fdw NAME` | — | Also build and start a postgres_fdw instance with the given NAME (port + 10) |
+| `--create-pg-fdw` | off | Set up postgres_fdw with a loopback foreign server on the primary instance |
 | `--create-replica NAME` | — | Also build and start a replica instance with the given NAME (port + 20) |
 | `--skip-build` | off | Skip the build step (re-init DB only) |
 | `--worktree-only` | off | Only create worktree, skip build and DB initialization |
@@ -91,7 +91,7 @@ python pg_build.py --worktree-name patchwork --continue
 Build primary + postgres_fdw + replica instances:
 ```bash
 python pg_build.py --worktree-name dev --branch master \
-  --create-pg-fdw dev-fdw --create-replica dev-replica
+  --create-pg-fdw --create-replica dev-replica
 ```
 
 Re-initialize the database without rebuilding:
@@ -152,23 +152,19 @@ After running, the `--prefix` directory will contain:
 └── activate_dev.sh          # Shell activation script
 ```
 
-With `--create-pg-fdw dev-fdw` and `--create-replica dev-replica`, additional directories and scripts are created:
+With `--create-pg-fdw` and `--create-replica dev-replica`, additional directories and scripts are created:
 ```
 <prefix>/
 ├── worktrees/
 │   ├── dev/
-│   ├── dev-fdw/
 │   └── dev-replica/
 ├── pghome/
 │   ├── dev/
-│   ├── dev-fdw/
 │   └── dev-replica/
 ├── pgdata/
 │   ├── dev/
-│   ├── dev-fdw/
 │   └── dev-replica/
 ├── activate_dev.sh
-├── activate_dev-fdw.sh
 └── activate_dev-replica.sh
 ```
 
@@ -197,7 +193,7 @@ This exports `PGHOME`, `PGDATA`, `PGPORT`, `PATH`, `LD_LIBRARY_PATH`, and severa
 | Instance | Port |
 |---|---|
 | Primary | `--port` (default 5432) |
-| FDW | `--port + 10` (default 5442) |
+| FDW | Same as primary (loopback) |
 | Replica | `--port + 20` (default 5452) |
 
 ## patch_download.py
@@ -246,4 +242,4 @@ python pg_build.py --worktree-name my-patch --branch master --patch ~/patches/v3
 - The script stops any existing PostgreSQL process on the target port before reinitializing.
 - `--patch` accepts multiple files or a glob pattern; patches are applied in sorted order via `git am --3way`. If a conflict occurs, resolve it in the worktree and run `--continue` to finish applying remaining patches and proceed with the build.
 - Both `--branch` and `--tag` are mapped to `origin/<ref>` when creating the worktree.
-- All instance names (`--worktree-name`, `--create-pg-fdw`, `--create-replica`) must be unique — the script will error if any names collide.
+- All instance names (`--worktree-name`, `--create-replica`) must be unique — the script will error if any names collide.
