@@ -236,19 +236,18 @@ def start_db(pg_home: Path, pgdata: Path, env: dict):
 # -----------------------------
 # Setup postgres_fdw
 # -----------------------------
-def setup_fdw(primary_home: Path, primary_port: int,
-              fdw_name: str, fdw_port: int):
-    log.info("🔧 Setting up postgres_fdw on primary...")
+def setup_fdw(primary_home: Path, primary_port: int):
+    log.info("🔧 Setting up postgres_fdw (loopback)...")
     env = os.environ.copy()
     env["PATH"] = f"{primary_home}/bin:" + env.get("PATH", "")
     psql = [str(primary_home / "bin/psql"), "-h", "localhost",
             "-p", str(primary_port), "-U", "postgres", "-d", "postgres", "-c"]
     run(psql + ["CREATE EXTENSION IF NOT EXISTS postgres_fdw;"], env=env)
-    run(psql + [f"CREATE SERVER {fdw_name} FOREIGN DATA WRAPPER postgres_fdw "
-                f"OPTIONS (host 'localhost', port '{fdw_port}', dbname 'postgres');"], env=env)
-    run(psql + [f"CREATE USER MAPPING FOR postgres SERVER {fdw_name} "
-                f"OPTIONS (user 'postgres');"], env=env)
-    log.info(f"✅ Foreign server '{fdw_name}' created (localhost:{fdw_port})")
+    run(psql + [f"CREATE SERVER loopback FOREIGN DATA WRAPPER postgres_fdw "
+                f"OPTIONS (host 'localhost', port '{primary_port}', dbname 'postgres');"], env=env)
+    run(psql + ["CREATE USER MAPPING FOR postgres SERVER loopback "
+                "OPTIONS (user 'postgres');"], env=env)
+    log.info(f"✅ Foreign server 'loopback' created (localhost:{primary_port})")
 
 # -----------------------------
 # Setup streaming replication
@@ -683,8 +682,8 @@ def main():
                         help="Build system to use (default: meson)")
     parser.add_argument("--worktree-name", type=str,
                         help="Name for the worktree, installation, data directory, and activation script (required for build operations)")
-    parser.add_argument("--create-pg-fdw", type=str, default=None, metavar="NAME",
-                        help="Also build and start a postgres_fdw instance with the given NAME (port + 10)")
+    parser.add_argument("--create-pg-fdw", action="store_true", default=False,
+                        help="Set up postgres_fdw with a loopback foreign server on the primary instance")
     parser.add_argument("--create-replica", type=str, default=None, metavar="NAME",
                         help="Also build and start a replica instance with the given NAME (port + 20)")
     parser.add_argument("--skip-build", action="store_true",
@@ -895,10 +894,6 @@ def main():
 
     # Validate instance name collisions
     instance_names = [args.worktree_name]
-    if args.create_pg_fdw:
-        if args.create_pg_fdw in instance_names:
-            parser.error(f"--create-pg-fdw name '{args.create_pg_fdw}' collides with --worktree-name")
-        instance_names.append(args.create_pg_fdw)
     if args.create_replica:
         if args.create_replica in instance_names:
             parser.error(f"--create-replica name '{args.create_replica}' collides with another instance name")
@@ -907,12 +902,9 @@ def main():
     pg_home_primary = prefix / "pghome" / args.worktree_name
     build_instance(pg_home_primary, args.branch, args.tag, args.commit, args.worktree_name, args.port, skip_build=args.skip_build)
 
-    # FDW
+    # FDW (loopback)
     if args.create_pg_fdw:
-        fdw_name = args.create_pg_fdw
-        pg_home_fdw = prefix / "pghome" / fdw_name
-        build_instance(pg_home_fdw, args.branch, args.tag, args.commit, fdw_name, args.port + 10, skip_build=args.skip_build, force_worktree=True)
-        setup_fdw(pg_home_primary, args.port, fdw_name, args.port + 10)
+        setup_fdw(pg_home_primary, args.port)
 
     # Replica
     if args.create_replica:
