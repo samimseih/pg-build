@@ -1079,14 +1079,17 @@ class TestMainArgParsing:
         assert mock_build.call_count == 2
         mock_repl.assert_called_once()
 
+    @patch("pg_build.setup_fdw")
     @patch("pg_build.build_instance")
-    def test_main_build_with_fdw(self, mock_build, tmp_path):
+    def test_main_build_with_fdw(self, mock_build, mock_fdw, tmp_path):
         """Should build FDW instance."""
         with patch("sys.argv", ["pg_build.py", "--prefix", str(tmp_path),
-                                "--branch", "main", "--create-fdw"]):
+                                "--worktree-name", "primary",
+                                "--branch", "main", "--create-pg-fdw", "myfdw"]):
             pg_build.main()
         # Should build primary + fdw = 2 calls
         assert mock_build.call_count == 2
+        mock_fdw.assert_called_once()
 
     @patch("pg_build.build_instance")
     def test_main_custom_port(self, mock_build, tmp_path):
