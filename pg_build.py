@@ -170,10 +170,7 @@ def activate_script(pg_home: Path,
                     pgdata: Path,
                     port: int,
                     script_name: Path,
-                    pg_bsd_indent_path: Path,
-                    worktree_name: Optional[str] = None) -> Path:
-    if worktree_name:
-        script_name = script_name.with_name(f"{script_name.stem}_{worktree_name}{script_name.suffix}")
+                    pg_bsd_indent_path: Path) -> Path:
 
     exports = [
         f"export PGHOME={pg_home}",
@@ -355,7 +352,7 @@ def build_instance(pg_home: Path,
 
     worktrees_dir = prefix / "worktrees"
     worktrees_dir.mkdir(parents=True, exist_ok=True)
-    worktree_name_final = args.worktree_name if args.worktree_name else f"src_{name}"
+    worktree_name_final = name
     worktree_dir = worktrees_dir / worktree_name_final
 
     # Setup worktree if needed
@@ -415,10 +412,7 @@ def build_instance(pg_home: Path,
     env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
 
     # PGDATA & activation script
-    if args.worktree_name:
-        pgdata_name = args.worktree_name
-    else:
-        pgdata_name = name
+    pgdata_name = name
 
     pgdata_dir = prefix / "pgdata" / pgdata_name
     script_file = prefix / f"activate_{pgdata_name}.sh"
@@ -485,7 +479,7 @@ def clean_worktrees(prefix: Path):
     # Stop any running clusters before cleanup
     for worktree in worktrees:
         wt_name = worktree.name
-        inst_name = wt_name.replace("src_", "", 1) if wt_name.startswith("src_") else wt_name
+        inst_name = wt_name
         pghome_dir = prefix / "pghome" / inst_name
         pgdata_dir = prefix / "pgdata" / inst_name
         if pgdata_dir.exists():
@@ -542,8 +536,7 @@ def remove_worktree(prefix: Path, worktree_name: str):
 
     for worktree_dir in matching:
         actual_name = worktree_dir.name
-        # Derive instance name (strip "src_" prefix if present)
-        instance_name = actual_name.replace("src_", "", 1) if actual_name.startswith("src_") else actual_name
+        instance_name = actual_name
 
         log.info(f"🗑️  Removing worktree: {actual_name}")
 
@@ -606,10 +599,10 @@ def list_worktrees(prefix: Path):
             continue
 
         name = worktree.name
-        instance_name = name.replace("src_", "")
+        instance_name = name
 
         # Check if corresponding pghome exists
-        pghome = prefix / f"pghome_{instance_name}"
+        pghome = prefix / "pghome" / instance_name
         pghome_exists = pghome.exists()
 
         # Check if pgdata exists
@@ -672,11 +665,11 @@ def main():
     parser.add_argument("--build-system", choices=["meson", "make"], default="meson",
                         help="Build system to use (default: meson)")
     parser.add_argument("--worktree-name", type=str,
-                        help="Optional prefix for naming worktree directories")
-    parser.add_argument("--create-fdw", action="store_true",
-                        help="Also build and start an FDW instance (port + 10)")
-    parser.add_argument("--create-replica", action="store_true",
-                        help="Also build and start a replica instance (port + 20)")
+                        help="Name for the worktree, installation, data directory, and activation script (required for build operations)")
+    parser.add_argument("--create-fdw", type=str, default=None, metavar="NAME",
+                        help="Also build and start an FDW instance with the given NAME (port + 10)")
+    parser.add_argument("--create-replica", type=str, default=None, metavar="NAME",
+                        help="Also build and start a replica instance with the given NAME (port + 20)")
     parser.add_argument("--skip-build", action="store_true",
                         help="Skip the build step (re-init DB only)")
     parser.add_argument("--worktree-only", action="store_true",
@@ -761,10 +754,9 @@ def main():
         prefix = args.prefix.expanduser().resolve()
         worktrees_dir = prefix / "worktrees"
 
-        if args.worktree_name:
-            worktree_name_final = args.worktree_name
-        else:
-            worktree_name_final = "src_primary"
+        if not args.worktree_name:
+            parser.error("--worktree-name is required with --indent")
+        worktree_name_final = args.worktree_name
         worktree_dir = worktrees_dir / worktree_name_final
 
         if not worktree_dir.exists():
@@ -801,10 +793,9 @@ def main():
         source_dir = prefix / "source"
         worktrees_dir = prefix / "worktrees"
 
-        if args.worktree_name:
-            worktree_name_final = args.worktree_name
-        else:
-            worktree_name_final = "src_primary"
+        if not args.worktree_name:
+            parser.error("--worktree-name is required with --continue")
+        worktree_name_final = args.worktree_name
         worktree_dir = worktrees_dir / worktree_name_final
 
         if not worktree_dir.exists():
@@ -815,10 +806,7 @@ def main():
         run(["git", "am", "--continue"], cwd=worktree_dir)
 
         # Proceed with build
-        if args.worktree_name:
-            pg_home = prefix / "pghome" / args.worktree_name
-        else:
-            pg_home = prefix / "pghome" / "primary"
+        pg_home = prefix / "pghome" / args.worktree_name
 
         build_dir = worktree_dir / "build"
         if build_dir.exists():
@@ -833,16 +821,12 @@ def main():
         env = os.environ.copy()
         env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
 
-        if args.worktree_name:
-            pgdata_name = f"{args.worktree_name}_primary"
-        else:
-            pgdata_name = "primary"
+        pgdata_name = args.worktree_name
 
         pgdata_dir = prefix / "pgdata" / pgdata_name
-        script_file = prefix / "activate_primary.sh"
+        script_file = prefix / f"activate_{pgdata_name}.sh"
         pg_bsd_indent_path = worktree_dir / "src/tools/pg_bsd_indent"
-        activate_script(pg_home, pgdata_dir, args.port, script_file, pg_bsd_indent_path,
-                        worktree_name=args.worktree_name)
+        activate_script(pg_home, pgdata_dir, args.port, script_file, pg_bsd_indent_path)
 
         stop_postgres(pg_home, pgdata_dir, args.port)
         if pgdata_dir.exists():
@@ -864,19 +848,15 @@ def main():
         # Recreate activation script only
         prefix = args.prefix.expanduser().resolve()
 
-        if args.worktree_name:
-            pg_home = prefix / "pghome" / f"{args.worktree_name}_primary"
-            worktree_dir = prefix / "worktrees" / f"{args.worktree_name}_primary"
-            pgdata_dir = prefix / "pgdata" / f"{args.worktree_name}_primary"
-        else:
-            pg_home = prefix / "pghome" / "primary"
-            worktree_dir = prefix / "worktrees" / "src_primary"
-            pgdata_dir = prefix / "pgdata" / "primary"
-        script_file = prefix / f"activate_primary.sh"
+        if not args.worktree_name:
+            parser.error("--worktree-name is required with --recreate-activate-script")
+        pg_home = prefix / "pghome" / args.worktree_name
+        worktree_dir = prefix / "worktrees" / args.worktree_name
+        pgdata_dir = prefix / "pgdata" / args.worktree_name
+        script_file = prefix / f"activate_{args.worktree_name}.sh"
         pg_bsd_indent_path = worktree_dir / "src/tools/pg_bsd_indent"
 
-        activate_script(pg_home, pgdata_dir, args.port, script_file, pg_bsd_indent_path,
-                        worktree_name=args.worktree_name)
+        activate_script(pg_home, pgdata_dir, args.port, script_file, pg_bsd_indent_path)
         log.info("✅ Activation script recreated successfully.")
         return
 
@@ -892,26 +872,39 @@ def main():
     if ref_count > 1:
         parser.error("--branch, --tag, and --commit are mutually exclusive")
 
-    # Primary - use worktree_name if provided
-    if args.worktree_name:
-        pg_home_primary = prefix / "pghome" / f"{args.worktree_name}_primary"
-    else:
-        pg_home_primary = prefix / "pghome" / "primary"
-    build_instance(pg_home_primary, args.branch, args.tag, args.commit, "primary", args.port, skip_build=args.skip_build)
+    # Require --worktree-name for build operations
+    if not args.worktree_name:
+        parser.error("--worktree-name is required")
+
+    # Validate instance name collisions
+    instance_names = [args.worktree_name]
+    if args.create_fdw:
+        if args.create_fdw in instance_names:
+            parser.error(f"--create-fdw name '{args.create_fdw}' collides with --worktree-name")
+        instance_names.append(args.create_fdw)
+    if args.create_replica:
+        if args.create_replica in instance_names:
+            parser.error(f"--create-replica name '{args.create_replica}' collides with another instance name")
+
+    # Primary
+    pg_home_primary = prefix / "pghome" / args.worktree_name
+    build_instance(pg_home_primary, args.branch, args.tag, args.commit, args.worktree_name, args.port, skip_build=args.skip_build)
 
     # FDW
     if args.create_fdw:
-        pg_home_fdw = prefix / "pghome" / "fdw"
-        build_instance(pg_home_fdw, args.branch, args.tag, args.commit, "fdw", args.port + 10, skip_build=args.skip_build, force_worktree=True)
+        fdw_name = args.create_fdw
+        pg_home_fdw = prefix / "pghome" / fdw_name
+        build_instance(pg_home_fdw, args.branch, args.tag, args.commit, fdw_name, args.port + 10, skip_build=args.skip_build, force_worktree=True)
 
     # Replica
     if args.create_replica:
-        pg_home_replica = prefix / "pghome" / "replica"
-        build_instance(pg_home_replica, args.branch, args.tag, args.commit, "replica", args.port + 20, skip_build=args.skip_build, force_worktree=True)
+        replica_name = args.create_replica
+        pg_home_replica = prefix / "pghome" / replica_name
+        build_instance(pg_home_replica, args.branch, args.tag, args.commit, replica_name, args.port + 20, skip_build=args.skip_build, force_worktree=True)
 
         # Setup replication between primary and replica
-        pgdata_primary = prefix / "pgdata" / "primary"
-        pgdata_replica = prefix / "pgdata" / "replica"
+        pgdata_primary = prefix / "pgdata" / args.worktree_name
+        pgdata_replica = prefix / "pgdata" / replica_name
         setup_replication(pg_home_primary, pgdata_primary, args.port,
                          pg_home_replica, pgdata_replica, args.port + 20)
 

@@ -36,9 +36,9 @@ python pg_build.py [OPTIONS]
 | `--patch FILES` | — | Patch file(s) or glob pattern to apply via `git am --3way` |
 | `--meson-flags FLAGS` | — | Extra flags passed to `meson setup` |
 | `--build-system` | `meson` | Build system to use: `meson` or `make` |
-| `--worktree-name NAME` | — | Name for the worktree directory (used as-is for worktree, pghome, pgdata, and activate script) |
-| `--create-fdw` | off | Also build and start an FDW instance (port + 10) |
-| `--create-replica` | off | Also build and start a replica instance (port + 20) |
+| `--worktree-name NAME` | — | **Required.** Name for the worktree, installation, data directory, and activation script |
+| `--create-fdw NAME` | — | Also build and start an FDW instance with the given NAME (port + 10) |
+| `--create-replica NAME` | — | Also build and start a replica instance with the given NAME (port + 20) |
 | `--skip-build` | off | Skip the build step (re-init DB only) |
 | `--worktree-only` | off | Only create worktree, skip build and DB initialization |
 | `--force-worktree` | off | Force recreation of worktree even if it exists |
@@ -55,29 +55,29 @@ python pg_build.py [OPTIONS]
 
 Build from the `master` branch:
 ```bash
-python pg_build.py --branch master
+python pg_build.py --worktree-name master --branch master
 ```
 
 Build a specific release tag with a custom prefix:
 ```bash
-python pg_build.py --tag REL_16_0 --prefix ~/pg/16
+python pg_build.py --worktree-name rel16 --tag REL_16_0 --prefix ~/pg/16
 ```
 
 Build from a specific commit hash:
 ```bash
-python pg_build.py --commit abc123def456
+python pg_build.py --worktree-name mycommit --commit abc123def456
 ```
 
 Build with Meson flags and apply a patch:
 ```bash
-python pg_build.py --branch master \
+python pg_build.py --worktree-name my-feature --branch master \
   --meson-flags "-Dcassert=true -Dtap_tests=enabled" \
   --patch ~/patches/my-feature.patch
 ```
 
 Apply multiple patches (shell glob expansion):
 ```bash
-python pg_build.py --branch master --patch ~/Downloads/*.patch
+python pg_build.py --worktree-name patchwork --branch master --patch ~/Downloads/*.patch
 ```
 
 If a patch conflict occurs during `--patch`, resolve it manually in the worktree, then resume:
@@ -85,17 +85,18 @@ If a patch conflict occurs during `--patch`, resolve it manually in the worktree
 # 1. Fix conflicts in the worktree, then:
 #    git add <resolved files>
 # 2. Continue the build:
-python pg_build.py --continue
+python pg_build.py --worktree-name patchwork --continue
 ```
 
 Build primary + FDW + replica instances:
 ```bash
-python pg_build.py --branch master --create-fdw --create-replica
+python pg_build.py --worktree-name dev --branch master \
+  --create-fdw dev-fdw --create-replica dev-replica
 ```
 
 Re-initialize the database without rebuilding:
 ```bash
-python pg_build.py --branch master --skip-build
+python pg_build.py --worktree-name dev --branch master --skip-build
 ```
 
 List all existing worktrees:
@@ -112,15 +113,12 @@ python pg_build.py --clean-worktrees
 
 Remove a single worktree (and its pghome, pgdata, and activation scripts):
 ```bash
-python pg_build.py --remove-worktree src_primary
-
-# For a named worktree
 python pg_build.py --remove-worktree my-feature
 ```
 
 Create worktree only (no build or DB init):
 ```bash
-python pg_build.py --branch master --worktree-only
+python pg_build.py --worktree-name my-feature --branch master --worktree-only
 ```
 
 Update source repository (fetch latest from all remotes):
@@ -130,16 +128,12 @@ python pg_build.py --update-source
 
 Force recreation of worktree (useful when switching branches or after manual changes):
 ```bash
-python pg_build.py --branch master --skip-build --force-worktree
+python pg_build.py --worktree-name dev --branch master --skip-build --force-worktree
 ```
 
 Recreate activation script only (useful after changing ports or paths):
 ```bash
-python pg_build.py --prefix ~/pgdev/installations --recreate-activate-script --port 5432
-
-# For a named worktree instance
-python pg_build.py --prefix ~/pgdev/installations --recreate-activate-script \
-  --worktree-name my-feature --port 5433
+python pg_build.py --worktree-name dev --recreate-activate-script --port 5432
 ```
 
 ## Directory Layout
@@ -150,34 +144,40 @@ After running, the `--prefix` directory will contain:
 <prefix>/
 ├── source/                  # Cloned repository
 ├── worktrees/
-│   └── src_primary/         # Git worktree for the primary build
-├── pghome/                  # PostgreSQL installations
-│   └── primary/             # Installed PostgreSQL binaries
+│   └── dev/                 # Git worktree (named by --worktree-name)
+├── pghome/
+│   └── dev/                 # Installed PostgreSQL binaries
 ├── pgdata/
-│   └── primary/             # Initialized data directory
-└── activate_primary.sh      # Shell activation script
+│   └── dev/                 # Initialized data directory
+└── activate_dev.sh          # Shell activation script
 ```
 
-With `--create-fdw` or `--create-replica`, additional `pghome/fdw/`, `pghome/replica/`, `pgdata/fdw/`, `pgdata/replica/`, and corresponding activation scripts are created.
-
-With `--worktree-name`, the structure uses the provided name directly:
+With `--create-fdw dev-fdw` and `--create-replica dev-replica`, additional directories and scripts are created:
 ```
 <prefix>/
 ├── worktrees/
-│   └── my-feature/          # Named worktree
+│   ├── dev/
+│   ├── dev-fdw/
+│   └── dev-replica/
 ├── pghome/
-│   └── my-feature/          # Named installation
+│   ├── dev/
+│   ├── dev-fdw/
+│   └── dev-replica/
 ├── pgdata/
-│   └── my-feature/          # Named data directory
-└── activate_my-feature.sh
+│   ├── dev/
+│   ├── dev-fdw/
+│   └── dev-replica/
+├── activate_dev.sh
+├── activate_dev-fdw.sh
+└── activate_dev-replica.sh
 ```
 
 ## Activation Scripts
 
-Each instance gets a generated activation script (e.g. `activate_primary.sh`) that sets up your shell environment:
+Each instance gets a generated activation script (e.g. `activate_dev.sh`) that sets up your shell environment:
 
 ```bash
-source ~/pgdev/installations/activate_primary.sh
+source ~/pgdev/installations/activate_dev.sh
 ```
 
 This exports `PGHOME`, `PGDATA`, `PGPORT`, `PATH`, `LD_LIBRARY_PATH`, and several convenience aliases and functions:
@@ -236,7 +236,7 @@ python patch_download.py 5338 v3- ~/patches
 Combine with `pg_build.py` to download and apply in one go:
 ```bash
 python patch_download.py 5338 v3- ~/patches
-python pg_build.py --branch master --patch ~/patches/v3-*.patch
+python pg_build.py --worktree-name my-patch --branch master --patch ~/patches/v3-*.patch
 ```
 
 ## Notes
@@ -246,3 +246,4 @@ python pg_build.py --branch master --patch ~/patches/v3-*.patch
 - The script stops any existing PostgreSQL process on the target port before reinitializing.
 - `--patch` accepts multiple files or a glob pattern; patches are applied in sorted order via `git am --3way`. If a conflict occurs, resolve it in the worktree and run `--continue` to finish applying remaining patches and proceed with the build.
 - Both `--branch` and `--tag` are mapped to `origin/<ref>` when creating the worktree.
+- All instance names (`--worktree-name`, `--create-fdw`, `--create-replica`) must be unique — the script will error if any names collide.
