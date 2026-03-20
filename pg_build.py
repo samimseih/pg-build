@@ -355,7 +355,7 @@ def build_instance(pg_home: Path,
 
     worktrees_dir = prefix / "worktrees"
     worktrees_dir.mkdir(parents=True, exist_ok=True)
-    worktree_name_final = f"{args.worktree_name}_{name}" if args.worktree_name else f"src_{name}"
+    worktree_name_final = args.worktree_name if args.worktree_name else f"src_{name}"
     worktree_dir = worktrees_dir / worktree_name_final
 
     # Setup worktree if needed
@@ -414,16 +414,16 @@ def build_instance(pg_home: Path,
     env = os.environ.copy()
     env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
 
-    # PGDATA & activation script - use worktree_name for unique data directory
+    # PGDATA & activation script
     if args.worktree_name:
-        pgdata_name = f"{args.worktree_name}_{name}"
+        pgdata_name = args.worktree_name
     else:
         pgdata_name = name
 
     pgdata_dir = prefix / "pgdata" / pgdata_name
-    script_file = prefix / f"activate_{name}.sh"
+    script_file = prefix / f"activate_{pgdata_name}.sh"
     pg_bsd_indent_path = source_path / "src/tools/pg_bsd_indent"
-    activate_script(pg_home, pgdata_dir, port, script_file, pg_bsd_indent_path, worktree_name=args.worktree_name)
+    activate_script(pg_home, pgdata_dir, port, script_file, pg_bsd_indent_path)
 
     # Stop & clean PGDATA
     stop_postgres(pg_home, pgdata_dir, port)
@@ -520,12 +520,17 @@ def clean_worktrees(prefix: Path):
 # Remove a single worktree
 # -----------------------------
 def resolve_worktree_dirs(prefix: Path, worktree_name: str) -> list:
-    """Resolve a worktree prefix to matching directories under prefix/worktrees."""
+    """Resolve a worktree prefix to matching directories under prefix/worktrees.
+
+    Matches worktrees whose name equals worktree_name exactly or starts with
+    worktree_name followed by '_' (e.g. "test" matches "test_primary" and
+    "test_fdw" but not "testing_primary").
+    """
     worktrees_dir = prefix / "worktrees"
     if not worktrees_dir.exists():
         return []
     return sorted([w for w in worktrees_dir.iterdir()
-                   if w.is_dir() and w.name.startswith(worktree_name)])
+                   if w.is_dir() and (w.name == worktree_name or w.name.startswith(worktree_name + "_"))])
 
 def remove_worktree(prefix: Path, worktree_name: str):
     source_dir = prefix / "source"
@@ -574,8 +579,9 @@ def remove_worktree(prefix: Path, worktree_name: str):
             shutil.rmtree(pgdata_dir, ignore_errors=True)
 
         # Remove activate scripts for this instance
-        # Scripts are named activate_{name}_{worktree_name}.sh (e.g. activate_primary_test.sh)
-        for script in prefix.glob(f"activate_*_{worktree_name}.sh"):
+        # Scripts are named activate_{instance_name}.sh
+        script = prefix / f"activate_{instance_name}.sh"
+        if script.exists():
             log.info(f"  Removing {script}")
             script.unlink()
 
@@ -756,7 +762,7 @@ def main():
         worktrees_dir = prefix / "worktrees"
 
         if args.worktree_name:
-            worktree_name_final = f"{args.worktree_name}_primary"
+            worktree_name_final = args.worktree_name
         else:
             worktree_name_final = "src_primary"
         worktree_dir = worktrees_dir / worktree_name_final
@@ -796,7 +802,7 @@ def main():
         worktrees_dir = prefix / "worktrees"
 
         if args.worktree_name:
-            worktree_name_final = f"{args.worktree_name}_primary"
+            worktree_name_final = args.worktree_name
         else:
             worktree_name_final = "src_primary"
         worktree_dir = worktrees_dir / worktree_name_final
@@ -810,7 +816,7 @@ def main():
 
         # Proceed with build
         if args.worktree_name:
-            pg_home = prefix / "pghome" / f"{args.worktree_name}_primary"
+            pg_home = prefix / "pghome" / args.worktree_name
         else:
             pg_home = prefix / "pghome" / "primary"
 

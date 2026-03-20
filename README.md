@@ -36,7 +36,7 @@ python pg_build.py [OPTIONS]
 | `--patch FILES` | — | Patch file(s) or glob pattern to apply via `git am --3way` |
 | `--meson-flags FLAGS` | — | Extra flags passed to `meson setup` |
 | `--build-system` | `meson` | Build system to use: `meson` or `make` |
-| `--worktree-name NAME` | — | Optional prefix for naming worktree directories |
+| `--worktree-name NAME` | — | Name for the worktree directory (used as-is for worktree, pghome, pgdata, and activate script) |
 | `--create-fdw` | off | Also build and start an FDW instance (port + 10) |
 | `--create-replica` | off | Also build and start a replica instance (port + 20) |
 | `--skip-build` | off | Skip the build step (re-init DB only) |
@@ -113,6 +113,9 @@ python pg_build.py --clean-worktrees
 Remove a single worktree (and its pghome, pgdata, and activation scripts):
 ```bash
 python pg_build.py --remove-worktree src_primary
+
+# For a named worktree
+python pg_build.py --remove-worktree my-feature
 ```
 
 Create worktree only (no build or DB init):
@@ -136,7 +139,7 @@ python pg_build.py --prefix ~/pgdev/installations --recreate-activate-script --p
 
 # For a named worktree instance
 python pg_build.py --prefix ~/pgdev/installations --recreate-activate-script \
-  --worktree-name pghome_v18 --port 5433
+  --worktree-name my-feature --port 5433
 ```
 
 ## Directory Layout
@@ -157,16 +160,16 @@ After running, the `--prefix` directory will contain:
 
 With `--create-fdw` or `--create-replica`, additional `pghome/fdw/`, `pghome/replica/`, `pgdata/fdw/`, `pgdata/replica/`, and corresponding activation scripts are created.
 
-With `--worktree-name`, the structure uses the provided name:
+With `--worktree-name`, the structure uses the provided name directly:
 ```
 <prefix>/
 ├── worktrees/
-│   └── multixact_primary/   # Named worktree
+│   └── my-feature/          # Named worktree
 ├── pghome/
-│   └── multixact_primary/   # Named installation
+│   └── my-feature/          # Named installation
 ├── pgdata/
-│   └── multixact_primary/   # Named data directory
-└── activate_primary_multixact.sh
+│   └── my-feature/          # Named data directory
+└── activate_my-feature.sh
 ```
 
 ## Activation Scripts
