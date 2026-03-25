@@ -9,6 +9,9 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 
+#export LSAN_OPTIONS=exitcode=0
+# --meson-flags "-Db_sanitize=address -Ddocs=enabled --debug -Dcassert=true -Dtap_tests=enabled -Dinjection_points=true '-Dc_args=-Wall'" \
+
 # If -l, --list-worktrees, --clean-worktrees, or --commit is passed, run it directly without other args
 if [[ "$*" == *"-l"* ]] || [[ "$*" == *"--list-worktrees"* ]] || [[ "$*" == *"--clean-worktrees"* ]] || [[ "$*" == *"--remove-worktree"* ]] || [[ "$*" == *"--commit"* ]] || [[ "$*" == *"--tag"* ]]; then
   python3 $SCRIPT_DIR/pg_build.py "$@"

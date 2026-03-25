@@ -204,6 +204,16 @@ def activate_script(pg_home: Path,
         "    meson test -v -C . --suite setup",
         "    meson test -v -C . --suite \"$1\"",
         "}",
+        "",
+        "function pg_coverage_report() {",
+        "    ninja coverage-html",
+        "    echo \"Coverage report: $(pwd)/meson-logs/coveragereport/index.html\"",
+        "}",
+        "",
+        "function pg_coverage_reset() {",
+        "    find . -name '*.gcda' -delete",
+        "    echo \"Coverage counters reset.\"",
+        "}",
     ]
 
     script_name.write_text("\n".join(exports) + "\n")
@@ -420,6 +430,8 @@ def build_instance(pg_home: Path,
         cmd = ["meson", "setup", "build", f"--prefix={pg_home}"]
         if args.meson_flags:
             cmd.extend(shlex.split(args.meson_flags))
+        if args.coverage:
+            cmd.append("-Db_coverage=true")
         run(cmd, cwd=source_path, capture_output=args.capture_output)
         run(["ninja"], cwd=build_dir, capture_output=args.capture_output)
         run(["ninja", "install"], cwd=build_dir, capture_output=args.capture_output)
@@ -708,6 +720,8 @@ def main():
                         help="Only recreate the activation script (cannot be used with other options)")
     parser.add_argument("--continue", dest="continue_am", action="store_true",
                         help="Continue a previously failed git am and proceed with the build")
+    parser.add_argument("--coverage", action="store_true",
+                        help="Enable test coverage instrumentation (adds -Db_coverage=true to meson)")
     parser.add_argument("--indent", choices=["head", "staged", "unstaged"],
                         help="Run pgindent on files changed in HEAD commit, staged files, or unstaged files")
 
@@ -830,6 +844,8 @@ def main():
         cmd = ["meson", "setup", "build", f"--prefix={pg_home}"]
         if args.meson_flags:
             cmd.extend(shlex.split(args.meson_flags))
+        if args.coverage:
+            cmd.append("-Db_coverage=true")
         run(cmd, cwd=worktree_dir, capture_output=args.capture_output)
         run(["ninja"], cwd=build_dir, capture_output=args.capture_output)
         run(["ninja", "install"], cwd=build_dir, capture_output=args.capture_output)
@@ -887,6 +903,9 @@ def main():
         parser.error("One of --branch, --tag, or --commit is required")
     if ref_count > 1:
         parser.error("--branch, --tag, and --commit are mutually exclusive")
+
+    if args.coverage and args.build_system != "meson":
+        parser.error("--coverage is only supported with --build-system meson")
 
     # Require --worktree-name for build operations
     if not args.worktree_name:
