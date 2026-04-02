@@ -17,14 +17,7 @@ fi
 # 3. Install Perl IPC::Run module (required for PostgreSQL TAP tests)
 cpan IPC::Run
 
-# 4. Add PERL5LIB to ~/.zshrc so Perl can find local modules
-if ! grep -q 'PERL5LIB' ~/.zshrc; then
-    echo '' >> ~/.zshrc
-    echo '# Perl local modules (for IPC::Run etc.)' >> ~/.zshrc
-    echo 'export PERL5LIB="$HOME/perl5/lib/perl5${PERL5LIB:+:${PERL5LIB}}"' >> ~/.zshrc
-fi
-
-# 5. Install plenv (Perl version manager)
+# 4. Install plenv (Perl version manager)
 if [ ! -d "$HOME/.plenv" ]; then
     git clone https://github.com/tokuhirom/plenv.git ~/.plenv
     git clone https://github.com/tokuhirom/Perl-Build.git ~/.plenv/plugins/perl-build/
@@ -37,12 +30,12 @@ if ! grep -q 'plenv/bin' ~/.zshrc; then
     echo 'eval "$(plenv init -)"' >> ~/.zshrc
 fi
 
-# 6. Source updated zshrc
+# 5. Source updated zshrc
 export PATH="$HOME/.plenv/bin:$HOME/.local/bin:$PATH"
 eval "$(plenv init -)"
-export PERL5LIB="$HOME/perl5/lib/perl5${PERL5LIB:+:${PERL5LIB}}"
+#export PERL5LIB="$HOME/perl5/lib/perl5${PERL5LIB:+:${PERL5LIB}}"
 
-# 7. Helper function: source a plenv Perl for PG plperl builds
+# 6. Helper function: source a plenv Perl for PG plperl builds
 #    Usage: source_plenv_perl <version>
 #    Example: source_plenv_perl 5.38.2
 source_plenv_perl() {
@@ -61,3 +54,14 @@ source_plenv_perl() {
     echo "Active Perl: $(plenv which perl) ($(perl -v | grep version))"
 }
 
+# Set this as the default version. Make sure it's installed first
+source_plenv_perl 5.32.1
+
+# Save your modules list once
+echo "IPC::Run" > ~/.perl-modules.txt
+# After installing a new perl version, run:
+#cat ~/.perl-modules.txt | xargs perl -MCPAN -e 'install @ARGV'
+
+# Set default editor
+export EDITOR=vi
+export VISUAL=vi
