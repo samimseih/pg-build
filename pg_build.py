@@ -812,8 +812,12 @@ def main():
             log.info("No .c/.h files found to indent.")
             return
 
+        pg_bsd_indent_dir = worktree_dir / "build/src/tools/pg_bsd_indent"
+        env = os.environ.copy()
+        env["PATH"] = f"{pg_bsd_indent_dir}:{env.get('PATH', '')}"
+
         log.info(f"Running pgindent on {len(files)} file(s)...")
-        run([str(pgindent)] + files, cwd=worktree_dir)
+        run([str(pgindent)] + files, cwd=worktree_dir, env=env)
         log.info("✅ pgindent completed successfully.")
         return
 
