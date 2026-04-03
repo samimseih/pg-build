@@ -10,6 +10,7 @@ OUTPUT_DIR="${2:-coverage_report}"
 LCOV_FILE="$OUTPUT_DIR/coverage.info"
 
 set -e
+rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
 # Baseline (zero counters)
