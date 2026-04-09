@@ -15,6 +15,18 @@ SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 # If -l, --list-worktrees, --clean-worktrees, or --commit is passed, run it directly without other args
 if [[ "$*" == *"-l"* ]] || [[ "$*" == *"--list-worktrees"* ]] || [[ "$*" == *"--clean-worktrees"* ]] || [[ "$*" == *"--remove-worktree"* ]] || [[ "$*" == *"--commit"* ]] || [[ "$*" == *"--tag"* ]]; then
   python3 $SCRIPT_DIR/pg_build.py "$@"
+elif [[ "$*" == *"--release"* ]]; then
+  # Remove --release from args before passing to pg_build.py
+  ARGS=()
+  for arg in "$@"; do
+    [[ "$arg" != "--release" ]] && ARGS+=("$arg")
+  done
+  python3 $SCRIPT_DIR/pg_build.py \
+    --prefix ~/pgdev/installations \
+    --branch master \
+    --capture-output \
+    --meson-flags "-Dbuildtype=release -Dcassert=false -Dtap_tests=disabled -Dinjection_points=false -Ddocs=disabled '-Dc_args=-O2 -DNDEBUG'" \
+    "${ARGS[@]}"
 else
   python3 $SCRIPT_DIR/pg_build.py \
     --prefix ~/pgdev/installations \
