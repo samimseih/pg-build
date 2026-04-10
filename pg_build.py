@@ -444,7 +444,7 @@ def build_instance(pg_home: Path,
 
     pgdata_dir = prefix / "pgdata" / pgdata_name
     script_file = prefix / f"activate_{pgdata_name}.sh"
-    pg_bsd_indent_path = source_path / "src/tools/pg_bsd_indent"
+    pg_bsd_indent_path = build_dir / "src/tools/pg_bsd_indent"
     activate_script(pg_home, pgdata_dir, port, script_file, pg_bsd_indent_path)
 
     # Stop & clean PGDATA
