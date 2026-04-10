@@ -423,8 +423,8 @@ def build_instance(pg_home: Path,
         run(["git", "am", "--3way"] + abs_patches, cwd=source_path)
 
     # Build
+    build_dir = source_path / "build"
     if not skip_build:
-        build_dir = source_path / "build"
         if build_dir.exists():
             shutil.rmtree(build_dir)
         cmd = ["meson", "setup", "build", f"--prefix={pg_home}"]
