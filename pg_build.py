@@ -170,7 +170,8 @@ def activate_script(pg_home: Path,
                     pgdata: Path,
                     port: int,
                     script_name: Path,
-                    pg_bsd_indent_path: Path) -> Path:
+                    pg_bsd_indent_path: Path,
+                    build_system: str = "meson") -> Path:
 
     exports = [
         f"export PGHOME={pg_home}",
@@ -184,37 +185,63 @@ def activate_script(pg_home: Path,
         f"alias PG_STOP=\"pg_ctl -D {pgdata} stop\"",
         "",
         "# Build/Test helper functions",
-        "function pg_check_extension() {",
-        "    meson test -q --print-errorlogs --suite setup --suite $1",
-        "}",
-        "",
-        "function pg_check_world() {",
-        "    meson test -q --print-errorlogs",
-        "}",
-        "",
-        "function pg_build_docs() {",
-        "    ninja docs",
-        "}",
-        "",
-        "function pg_list_tests() {",
-        "    meson test --list",
-        "}",
-        "",
-        "function pg_run_suite() {",
-        "    meson test -v -C . --suite setup",
-        "    meson test -v -C . --suite \"$1\"",
-        "}",
-        "",
-        "function pg_coverage_report() {",
-        "    ninja coverage-html",
-        "    echo \"Coverage report: $(pwd)/meson-logs/coveragereport/index.html\"",
-        "}",
-        "",
-        "function pg_coverage_reset() {",
-        "    find . -name '*.gcda' -delete",
-        "    echo \"Coverage counters reset.\"",
-        "}",
     ]
+
+    if build_system == "make":
+        exports += [
+            "function pg_check_extension() {",
+            "    make -C contrib/$1 check",
+            "}",
+            "",
+            "function pg_check_world() {",
+            "    make check-world -j$(nproc)",
+            "}",
+            "",
+            "function pg_build_docs() {",
+            "    make docs",
+            "}",
+            "",
+            "function pg_run_suite() {",
+            "    make check -C src/test/$1",
+            "}",
+            "",
+            "function pg_list_tests() {",
+            "    echo 'pg_list_tests is not available with make builds'",
+            "}",
+        ]
+    else:
+        exports += [
+            "function pg_check_extension() {",
+            "    meson test -q --print-errorlogs --suite setup --suite $1",
+            "}",
+            "",
+            "function pg_check_world() {",
+            "    meson test -q --print-errorlogs",
+            "}",
+            "",
+            "function pg_build_docs() {",
+            "    ninja docs",
+            "}",
+            "",
+            "function pg_list_tests() {",
+            "    meson test --list",
+            "}",
+            "",
+            "function pg_run_suite() {",
+            "    meson test -v -C . --suite setup",
+            "    meson test -v -C . --suite \"$1\"",
+            "}",
+            "",
+            "function pg_coverage_report() {",
+            "    ninja coverage-html",
+            "    echo \"Coverage report: $(pwd)/meson-logs/coveragereport/index.html\"",
+            "}",
+            "",
+            "function pg_coverage_reset() {",
+            "    find . -name '*.gcda' -delete",
+            "    echo \"Coverage counters reset.\"",
+            "}",
+        ]
 
     script_name.write_text("\n".join(exports) + "\n")
     log.info(f"✅ Wrote activation script: {script_name}")
@@ -365,6 +392,39 @@ def setup_replication(primary_home: Path, primary_data: Path, primary_port: int,
         log.warning(f"⚠️  Could not verify replication status: {e}")
 
 # -----------------------------
+# Build helpers
+# -----------------------------
+def run_build(source_path: Path, pg_home: Path, args):
+    """Run the build (configure/compile/install) in source_path."""
+    if args.build_system == "make":
+        configure_cmd = ["./configure", f"--prefix={pg_home}"]
+        if args.configure_flags:
+            configure_cmd.extend(shlex.split(args.configure_flags))
+        run(configure_cmd, cwd=source_path, capture_output=args.capture_output)
+        run(["make", "-j", str(os.cpu_count() or 4)], cwd=source_path, capture_output=args.capture_output)
+        run(["make", "install"], cwd=source_path, capture_output=args.capture_output)
+    else:
+        build_dir = source_path / "build"
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+        cmd = ["meson", "setup", "build", f"--prefix={pg_home}"]
+        if args.meson_flags:
+            cmd.extend(shlex.split(args.meson_flags))
+        if args.coverage:
+            cmd.append("-Db_coverage=true")
+        run(cmd, cwd=source_path, capture_output=args.capture_output)
+        run(["ninja"], cwd=build_dir, capture_output=args.capture_output)
+        run(["ninja", "install"], cwd=build_dir, capture_output=args.capture_output)
+
+
+def get_bsd_indent_path(source_path: Path, build_system: str) -> Path:
+    """Return the pg_bsd_indent directory for the given build system."""
+    if build_system == "make":
+        return source_path / "src/tools/pg_bsd_indent"
+    return source_path / "build/src/tools/pg_bsd_indent"
+
+
+# -----------------------------
 # Build logic
 # -----------------------------
 def build_instance(pg_home: Path,
@@ -423,18 +483,8 @@ def build_instance(pg_home: Path,
         run(["git", "am", "--3way"] + abs_patches, cwd=source_path)
 
     # Build
-    build_dir = source_path / "build"
     if not skip_build:
-        if build_dir.exists():
-            shutil.rmtree(build_dir)
-        cmd = ["meson", "setup", "build", f"--prefix={pg_home}"]
-        if args.meson_flags:
-            cmd.extend(shlex.split(args.meson_flags))
-        if args.coverage:
-            cmd.append("-Db_coverage=true")
-        run(cmd, cwd=source_path, capture_output=args.capture_output)
-        run(["ninja"], cwd=build_dir, capture_output=args.capture_output)
-        run(["ninja", "install"], cwd=build_dir, capture_output=args.capture_output)
+        run_build(source_path, pg_home, args)
 
     env = os.environ.copy()
     env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
@@ -444,8 +494,8 @@ def build_instance(pg_home: Path,
 
     pgdata_dir = prefix / "pgdata" / pgdata_name
     script_file = prefix / f"activate_{pgdata_name}.sh"
-    pg_bsd_indent_path = build_dir / "src/tools/pg_bsd_indent"
-    activate_script(pg_home, pgdata_dir, port, script_file, pg_bsd_indent_path)
+    pg_bsd_indent_path = get_bsd_indent_path(source_path, args.build_system)
+    activate_script(pg_home, pgdata_dir, port, script_file, pg_bsd_indent_path, args.build_system)
 
     # Stop & clean PGDATA
     stop_postgres(pg_home, pgdata_dir, port)
@@ -690,6 +740,8 @@ def main():
                         help="Patch file(s) or glob pattern to apply via git am")
     parser.add_argument("--meson-flags", type=str,
                         help="Extra flags passed to meson setup")
+    parser.add_argument("--configure-flags", type=str,
+                        help="Extra flags passed to ./configure (for --build-system make)")
     parser.add_argument("--build-system", choices=["meson", "make"], default="meson",
                         help="Build system to use (default: meson)")
     parser.add_argument("--worktree-name", type=str,
@@ -842,17 +894,7 @@ def main():
         # Proceed with build
         pg_home = prefix / "pghome" / args.worktree_name
 
-        build_dir = worktree_dir / "build"
-        if build_dir.exists():
-            shutil.rmtree(build_dir)
-        cmd = ["meson", "setup", "build", f"--prefix={pg_home}"]
-        if args.meson_flags:
-            cmd.extend(shlex.split(args.meson_flags))
-        if args.coverage:
-            cmd.append("-Db_coverage=true")
-        run(cmd, cwd=worktree_dir, capture_output=args.capture_output)
-        run(["ninja"], cwd=build_dir, capture_output=args.capture_output)
-        run(["ninja", "install"], cwd=build_dir, capture_output=args.capture_output)
+        run_build(worktree_dir, pg_home, args)
 
         env = os.environ.copy()
         env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
@@ -861,8 +903,8 @@ def main():
 
         pgdata_dir = prefix / "pgdata" / pgdata_name
         script_file = prefix / f"activate_{pgdata_name}.sh"
-        pg_bsd_indent_path = worktree_dir / "src/tools/pg_bsd_indent"
-        activate_script(pg_home, pgdata_dir, args.port, script_file, pg_bsd_indent_path)
+        pg_bsd_indent_path = get_bsd_indent_path(worktree_dir, args.build_system)
+        activate_script(pg_home, pgdata_dir, args.port, script_file, pg_bsd_indent_path, args.build_system)
 
         stop_postgres(pg_home, pgdata_dir, args.port)
         if pgdata_dir.exists():
@@ -890,9 +932,9 @@ def main():
         worktree_dir = prefix / "worktrees" / args.worktree_name
         pgdata_dir = prefix / "pgdata" / args.worktree_name
         script_file = prefix / f"activate_{args.worktree_name}.sh"
-        pg_bsd_indent_path = worktree_dir / "src/tools/pg_bsd_indent"
+        pg_bsd_indent_path = get_bsd_indent_path(worktree_dir, args.build_system)
 
-        activate_script(pg_home, pgdata_dir, args.port, script_file, pg_bsd_indent_path)
+        activate_script(pg_home, pgdata_dir, args.port, script_file, pg_bsd_indent_path, args.build_system)
         log.info("✅ Activation script recreated successfully.")
         return
 
@@ -910,6 +952,11 @@ def main():
 
     if args.coverage and args.build_system != "meson":
         parser.error("--coverage is only supported with --build-system meson")
+
+    if args.meson_flags and args.build_system == "make":
+        log.warning("⚠️  --meson-flags ignored when --build-system is make")
+    if args.configure_flags and args.build_system == "meson":
+        log.warning("⚠️  --configure-flags ignored when --build-system is meson")
 
     # Require --worktree-name for build operations
     if not args.worktree_name:
