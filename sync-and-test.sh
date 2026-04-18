@@ -1,31 +1,30 @@
 #!/bin/bash
 set -euo pipefail
 
-REMOTE="dev-dsk-simseih-1e-5652b3f8.us-east-1.amazon.com"
-SRC="/Users/simseih/pgdev/installations/worktrees/dev/"
-REMOTE_DIR="~/postgres-dev"
-CMD_LINE="${SRC}build/meson-private/cmd_line.txt"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG="$SCRIPT_DIR/test_config"
+[[ -f "$CONFIG" ]] || { echo "Error: $CONFIG not found"; exit 1; }
+REMOTE="$(head -n1 "$CONFIG" | tr -d '[:space:]')"
+[[ -n "$REMOTE" ]] || { echo "Error: no hostname in $CONFIG"; exit 1; }
+WORKTREE_NAME="dev"
+LOCAL_SRC="$HOME/Development/pgdev/installations/worktrees/$WORKTREE_NAME/"
+REMOTE_PREFIX="$HOME/Development/pgdev/installations"
+REMOTE_WORKTREE="$REMOTE_PREFIX/worktrees/$WORKTREE_NAME"
+TEST_CMD="${1:-pg_check_world}"
 
-if [[ ! -f "$CMD_LINE" ]]; then
-  echo "Error: $CMD_LINE not found. Run a meson build first." >&2
-  exit 1
-fi
+# Sync pg-build tooling to remote
+rsync -az --exclude='.git/' --exclude='__pycache__/' \
+  "$HOME/Development/pg-build/" "$REMOTE:Development/pg-build/"
 
-OPTS=$(python3 -c "
-import configparser, sys, shlex
-c = configparser.ConfigParser()
-c.read(sys.argv[1])
-args = []
-for k, v in c.items('options'):
-    if k == 'prefix':
-        continue
-    args.append('-D' + k + '=' + shlex.quote(v))
-print(' '.join(args))
-" "$CMD_LINE")
+# Sync local postgres worktree source to remote (skip build artifacts)
+rsync -az --exclude='build/' --exclude='.git/' \
+  "$LOCAL_SRC" "$REMOTE:$REMOTE_WORKTREE/"
 
-git -C "$SRC" log --oneline -100 > "${SRC}.git-log.txt"
-
-rsync -az --exclude='build/' --exclude='.git/' --exclude='GNUmakefile' --exclude='src/Makefile.global' --exclude='src/include/pg_config.h' --exclude='src/include/pg_config_ext.h' --exclude='src/include/pg_config_os.h' --exclude='src/interfaces/ecpg/include/ecpg_config.h' "$SRC" "$REMOTE:$REMOTE_DIR/"
-
-JOBS=$(ssh "$REMOTE" "nproc")
-ssh "$REMOTE" "cd $REMOTE_DIR && meson setup build $OPTS --reconfigure 2>/dev/null || meson setup build $OPTS; meson compile -C build -j$JOBS && meson test -C build --print-errorlogs --num-processes $JOBS $*"
+# Build on remote using the build script, then run tests via activate script helpers
+ssh "$REMOTE" bash -lc "'
+  cd ~/Development/pg-build
+  ./build --worktree-name $WORKTREE_NAME --branch master
+  source $REMOTE_PREFIX/activate_${WORKTREE_NAME}.sh
+  cd $REMOTE_WORKTREE/build
+  $TEST_CMD
+'"
