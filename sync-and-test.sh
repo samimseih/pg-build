@@ -33,6 +33,21 @@ if [[ -d "$LOCAL_SRC" ]]; then
   else
     echo "No changes to sync"
   fi
+
+  # Sync unstaged changes (modified/deleted files)
+  DIRTY=$(git diff --name-only)
+  if [[ -n "$DIRTY" ]]; then
+    DELETED=$(git diff --name-only --diff-filter=D)
+    MODIFIED=$(git diff --name-only --diff-filter=d)
+    if [[ -n "$MODIFIED" ]]; then
+      echo "📤 Rsyncing $(echo "$MODIFIED" | wc -l | tr -d ' ') modified file(s) to $REMOTE"
+      echo "$MODIFIED" | rsync -az --files-from=- "$LOCAL_SRC/" "$REMOTE:~/$PREFIX/worktrees/$WORKTREE_NAME/"
+    fi
+    if [[ -n "$DELETED" ]]; then
+      echo "🗑️  Deleting $(echo "$DELETED" | wc -l | tr -d ' ') file(s) on $REMOTE"
+      echo "$DELETED" | ssh "$REMOTE" "cd ~/$PREFIX/worktrees/$WORKTREE_NAME && xargs rm -f"
+    fi
+  fi
 else
   echo "No local worktree yet — will do initial build on remote"
 fi
