@@ -16,11 +16,22 @@ TEST_CMD="${1:-pg_check_world}"
 PATCH_FLAG=""
 if [[ -d "$LOCAL_SRC" ]]; then
   cd "$LOCAL_SRC"
-  REMOTE_HEAD=$(ssh "$REMOTE" "cd ~/$PREFIX/worktrees/$WORKTREE_NAME && git rev-parse HEAD")
-  # Find common ancestor via patch-id matching, fall back to diffing against upstream/master
+
+  # Clean up any broken state on remote before syncing
+  REMOTE_WORKTREE="~/$PREFIX/worktrees/$WORKTREE_NAME"
+  echo "🧹 Resetting remote worktree to clean state..."
+  ssh "$REMOTE" "cd $REMOTE_WORKTREE && git am --abort 2>/dev/null; git checkout -- . && git clean -fd" || true
+
+  # Sync remote's git state locally so we diff against the right base
+  REMOTE_REPO="$REMOTE:$REMOTE_WORKTREE"
+  echo "🔄 Fetching remote git state from $REMOTE..."
+  git fetch "$REMOTE_REPO" HEAD:refs/remotes/build-remote/HEAD 2>/dev/null || true
+  REMOTE_HEAD=$(ssh "$REMOTE" "cd $REMOTE_WORKTREE && git rev-parse HEAD")
+
   if git cat-file -e "$REMOTE_HEAD" 2>/dev/null; then
     BASE="$REMOTE_HEAD"
   else
+    echo "⚠️  Remote HEAD $REMOTE_HEAD not found locally after fetch, falling back to merge-base"
     BASE=$(git merge-base HEAD upstream/master)
   fi
   rm -rf /tmp/pg-patches && mkdir -p /tmp/pg-patches
