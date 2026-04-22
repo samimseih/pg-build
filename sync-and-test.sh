@@ -20,7 +20,7 @@ if [[ -d "$LOCAL_SRC" ]]; then
   # Clean up any broken state on remote before syncing
   REMOTE_WORKTREE="~/$PREFIX/worktrees/$WORKTREE_NAME"
   echo "🧹 Resetting remote worktree to clean state..."
-  ssh "$REMOTE" "cd $REMOTE_WORKTREE && git am --abort 2>/dev/null; git checkout -- . && git clean -fd" || true
+  ssh "$REMOTE" "cd $REMOTE_WORKTREE && git am --abort 2>/dev/null; git checkout -- . && git clean -fd; rm -rf ~/tmp/pg-patches" || true
 
   # Sync remote's git state locally so we diff against the right base
   REMOTE_REPO="$REMOTE:$REMOTE_WORKTREE"
@@ -45,23 +45,27 @@ if [[ -d "$LOCAL_SRC" ]]; then
     echo "No changes to sync"
   fi
 
-  # Sync unstaged changes (modified/deleted files)
+  # Capture unstaged changes to sync after git am
   DIRTY=$(git diff --name-only)
-  if [[ -n "$DIRTY" ]]; then
-    DELETED=$(git diff --name-only --diff-filter=D)
-    MODIFIED=$(git diff --name-only --diff-filter=d)
-    if [[ -n "$MODIFIED" ]]; then
-      echo "📤 Rsyncing $(echo "$MODIFIED" | wc -l | tr -d ' ') modified file(s) to $REMOTE"
-      echo "$MODIFIED" | rsync -az --files-from=- "$LOCAL_SRC/" "$REMOTE:~/$PREFIX/worktrees/$WORKTREE_NAME/"
-    fi
-    if [[ -n "$DELETED" ]]; then
-      echo "🗑️  Deleting $(echo "$DELETED" | wc -l | tr -d ' ') file(s) on $REMOTE"
-      echo "$DELETED" | ssh "$REMOTE" "cd ~/$PREFIX/worktrees/$WORKTREE_NAME && xargs rm -f"
-    fi
-  fi
+  DIRTY_DELETED=$(git diff --name-only --diff-filter=D)
+  DIRTY_MODIFIED=$(git diff --name-only --diff-filter=d)
 else
   echo "No local worktree yet — will do initial build on remote"
 fi
+
+# Sync unstaged changes after patches are applied
+sync_dirty_files() {
+  if [[ -d "$LOCAL_SRC" && -n "${DIRTY:-}" ]]; then
+    if [[ -n "${DIRTY_MODIFIED:-}" ]]; then
+      echo "📤 Rsyncing $(echo "$DIRTY_MODIFIED" | wc -l | tr -d ' ') modified file(s) to $REMOTE"
+      echo "$DIRTY_MODIFIED" | rsync -az --files-from=- "$LOCAL_SRC/" "$REMOTE:~/$PREFIX/worktrees/$WORKTREE_NAME/"
+    fi
+    if [[ -n "${DIRTY_DELETED:-}" ]]; then
+      echo "🗑️  Deleting $(echo "$DIRTY_DELETED" | wc -l | tr -d ' ') file(s) on $REMOTE"
+      echo "$DIRTY_DELETED" | ssh "$REMOTE" "cd ~/$PREFIX/worktrees/$WORKTREE_NAME && xargs rm -f"
+    fi
+  fi
+}
 
 ssh "$REMOTE" bash -lc "'
   killall -9 postgres 2>/dev/null || true
@@ -75,6 +79,12 @@ ssh "$REMOTE" bash -lc "'
     exit 1
   fi
   ~/build --worktree-name $WORKTREE_NAME $PATCH_FLAG
+'"
+
+# Rsync unstaged changes after git am has applied patches on remote
+sync_dirty_files
+
+ssh "$REMOTE" bash -lc "'
   source ~/$PREFIX/activate_${WORKTREE_NAME}.sh
   cd ~/$PREFIX/worktrees/$WORKTREE_NAME/build
   $TEST_CMD
