@@ -14,9 +14,17 @@ export CC="ccache cc"
 export CXX="ccache c++"
 # --meson-flags "-Db_sanitize=address -Ddocs=enabled --debug -Dcassert=true -Dtap_tests=enabled -Dinjection_points=true '-Dc_args=-Wall'" \
 
+# Remote configuration
+ORIGIN_URL="https://github.com/<your-username>/postgres.git"
+# Optional: set only if using a fork (omit to use ORIGIN_URL as upstream)
+UPSTREAM_URL="https://github.com/postgres/postgres.git"
+
+REPO_ARGS=(--repo-url "$ORIGIN_URL")
+[[ -n "$UPSTREAM_URL" ]] && REPO_ARGS+=(--upstream-url "$UPSTREAM_URL")
+
 # If -l, --list-worktrees, --clean-worktrees, or --commit is passed, run it directly without other args
-if [[ "$*" == *"-l"* ]] || [[ "$*" == *"--list-worktrees"* ]] || [[ "$*" == *"--clean-worktrees"* ]] || [[ "$*" == *"--remove-worktree"* ]] || [[ "$*" == *"--commit"* ]] || [[ "$*" == *"--tag"* ]]; then
-  python3 $SCRIPT_DIR/pg_build.py "$@"
+if [[ "$*" == *"-l"* ]] || [[ "$*" == *"--list-worktrees"* ]] || [[ "$*" == *"--clean-worktrees"* ]] || [[ "$*" == *"--remove-worktree"* ]] || [[ "$*" == *"--commit"* ]] || [[ "$*" == *"--tag"* ]] || [[ "$*" == *"--sync-fork"* ]] || [[ "$*" == *"--update-source"* ]]; then
+  python3 $SCRIPT_DIR/pg_build.py "${REPO_ARGS[@]}" "$@"
 elif [[ "$*" == *"--release"* ]]; then
   # Remove --release from args before passing to pg_build.py
   ARGS=()
@@ -26,6 +34,7 @@ elif [[ "$*" == *"--release"* ]]; then
   if [[ "$*" == *"--build-system make"* ]]; then
     python3 $SCRIPT_DIR/pg_build.py \
       --prefix ~/Development/pgdev/installations \
+      "${REPO_ARGS[@]}" \
       --branch master \
       --capture-output \
       --configure-flags "--enable-tap-tests CFLAGS='-O2 -DNDEBUG'" \
@@ -33,6 +42,7 @@ elif [[ "$*" == *"--release"* ]]; then
   else
     python3 $SCRIPT_DIR/pg_build.py \
       --prefix ~/Development/pgdev/installations \
+      "${REPO_ARGS[@]}" \
       --branch master \
       --capture-output \
       --meson-flags "-Dbuildtype=release -Dcassert=false -Dtap_tests=disabled -Dinjection_points=false -Ddocs=disabled '-Dc_args=-O2 -DNDEBUG'" \
@@ -41,6 +51,7 @@ elif [[ "$*" == *"--release"* ]]; then
 elif [[ "$*" == *"--build-system make"* ]]; then
   python3 $SCRIPT_DIR/pg_build.py \
     --prefix ~/Development/pgdev/installations \
+    "${REPO_ARGS[@]}" \
     --branch master \
     --capture-output \
     --configure-flags "--enable-debug --enable-cassert --enable-tap-tests --enable-injection-points --enable-docs CFLAGS='-Wall'" \
@@ -48,6 +59,7 @@ elif [[ "$*" == *"--build-system make"* ]]; then
 else
   python3 $SCRIPT_DIR/pg_build.py \
     --prefix ~/Development/pgdev/installations \
+    "${REPO_ARGS[@]}" \
     --branch master \
     --capture-output \
     --meson-flags "-Ddocs=enabled --debug -Dcassert=true -Dtap_tests=enabled -Dinjection_points=true '-Dc_args=-Wall'" \

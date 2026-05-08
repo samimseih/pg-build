@@ -29,7 +29,9 @@ python pg_build.py [OPTIONS]
 | Option | Default | Description |
 |---|---|---|
 | `--prefix PATH` | `~/pgdev/installations` | Root directory for all build artifacts, data, and scripts |
-| `--repo-url URL` | PostgreSQL GitHub mirror | Git URL to clone from |
+| `--repo-url URL` | PostgreSQL GitHub mirror | Git URL to clone from (origin remote) |
+| `--upstream-url URL` | same as `--repo-url` | Upstream repository URL (for the upstream remote). If omitted, `--repo-url` is used for both origin and upstream. Only needed when working with a fork. |
+| `--sync-fork` | off | Sync fork's master with upstream/master (fetch, ff-merge, push) and exit. Requires `--upstream-url` to differ from `--repo-url`. |
 | `--branch NAME` | — | Branch to check out (mutually exclusive with --tag and --commit) |
 | `--tag NAME` | — | Tag to check out (mutually exclusive with --branch and --commit) |
 | `--commit HASH` | — | Commit hash to check out (mutually exclusive with --branch and --tag) |
@@ -125,6 +127,13 @@ Update source repository (fetch latest from all remotes):
 ```bash
 python pg_build.py --update-source
 ```
+
+Sync fork's master with upstream (fetch upstream, fast-forward merge, push to origin):
+```bash
+python pg_build.py --sync-fork
+```
+
+Force recreation of worktree (useful when switching branches or after manual changes):
 
 Force recreation of worktree (useful when switching branches or after manual changes):
 ```bash
@@ -243,3 +252,5 @@ python pg_build.py --worktree-name my-patch --branch master --patch ~/patches/v3
 - `--patch` accepts multiple files or a glob pattern; patches are applied in sorted order via `git am --3way`. If a conflict occurs, resolve it in the worktree and run `--continue` to finish applying remaining patches and proceed with the build.
 - Both `--branch` and `--tag` are mapped to `origin/<ref>` when creating the worktree.
 - All instance names (`--worktree-name`, `--create-replica`) must be unique — the script will error if any names collide.
+- `--upstream-url` is only needed when working with a fork. If omitted, `--repo-url` is used for both the origin and upstream remotes. When working directly with the official repository (no fork), simply set `--repo-url` and leave `--upstream-url` unset.
+- `example.sh` is a generic template with placeholder URLs. Copy it to `build` (which is gitignored) and fill in your own `ORIGIN_URL` and `UPSTREAM_URL` values.

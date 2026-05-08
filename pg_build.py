@@ -85,7 +85,8 @@ def setup_worktree(repo_root: Path,
                    branch: Optional[str],
                    tag: Optional[str],
                    commit: Optional[str],
-                   repo_url: str) -> Path:
+                   repo_url: str,
+                   upstream_url: Optional[str] = None) -> Path:
     repo_root = repo_root.resolve()
     worktree_dir = worktree_dir.resolve()
     repo_root.parent.mkdir(parents=True, exist_ok=True)
@@ -98,13 +99,24 @@ def setup_worktree(repo_root: Path,
         run(["git", "clone", repo_url, str(repo_root)])
 
     # Ensure upstream remote exists
+    upstream = upstream_url or repo_url
     existing_remotes = subprocess.run(
         ["git", "remote"], cwd=repo_root, capture_output=True, text=True
     ).stdout.splitlines()
     if "upstream" not in existing_remotes:
         log.info("🔗 Adding upstream remote")
-        run(["git", "remote", "add", "upstream", repo_url], cwd=repo_root)
+        run(["git", "remote", "add", "upstream", upstream], cwd=repo_root)
         run(["git", "fetch", "upstream"], cwd=repo_root)
+
+    # Verify and correct remote URLs if they don't match
+    for remote, expected_url in [("origin", repo_url), ("upstream", upstream)]:
+        if remote in existing_remotes:
+            current_url = subprocess.run(
+                ["git", "remote", "get-url", remote], cwd=repo_root, capture_output=True, text=True
+            ).stdout.strip()
+            if current_url != expected_url:
+                log.info(f"🔗 Updating {remote} URL: {current_url} → {expected_url}")
+                run(["git", "remote", "set-url", remote, expected_url], cwd=repo_root)
 
     checkout_ref = branch or tag or commit
     if not checkout_ref:
@@ -443,7 +455,7 @@ def build_instance(pg_home: Path,
 
     # Setup worktree if needed
     if not worktree_dir.exists() or (not skip_build and force_worktree) or args.force_worktree:
-        source_path = setup_worktree(source_dir, worktree_dir, branch, tag, args.commit, args.repo_url)
+        source_path = setup_worktree(source_dir, worktree_dir, branch, tag, args.commit, args.repo_url, args.upstream_url)
     else:
         source_path = worktree_dir
         log.info(f"⏭️  Using existing worktree at {source_path}")
@@ -534,6 +546,28 @@ def update_source(prefix: Path):
         log.info("✅ Source repository updated.")
     except Exception as e:
         log.info(f"❌ Failed to update source: {e}")
+
+# -----------------------------
+# Sync fork with upstream
+# -----------------------------
+def sync_fork(prefix: Path):
+    source_dir = prefix / "source"
+
+    if not source_dir.exists() or not (source_dir / ".git").exists():
+        log.error("❌ Source directory not found or not a git repository.")
+        sys.exit(1)
+
+    log.info("🔄 Syncing fork's master with upstream/master...")
+
+    try:
+        run(["git", "fetch", "upstream"], cwd=source_dir)
+        run(["git", "checkout", "master"], cwd=source_dir)
+        run(["git", "merge", "upstream/master", "--ff-only"], cwd=source_dir)
+        run(["git", "push", "origin", "master"], cwd=source_dir)
+        log.info("✅ Fork's master synced with upstream/master.")
+    except Exception as e:
+        log.error(f"❌ Failed to sync fork: {e}")
+        sys.exit(1)
 
 # -----------------------------
 # Clean worktrees
@@ -729,7 +763,11 @@ def main():
     parser.add_argument("--prefix", type=Path, default=Path.home() / "pgdev/installations",
                         help="Root directory for build artifacts, data, and scripts (default: ~/pgdev/installations)")
     parser.add_argument("--repo-url", type=str, default="https://github.com/postgres/postgres.git",
-                        help="Git repository URL to clone from")
+                        help="Git repository URL to clone from (origin remote)")
+    parser.add_argument("--upstream-url", type=str,
+                        help="Upstream repository URL for the upstream remote (defaults to --repo-url if not specified)")
+    parser.add_argument("--sync-fork", action="store_true",
+                        help="Sync fork's master with upstream/master (fetch upstream, fast-forward merge, push to origin) and exit")
     parser.add_argument("--branch", type=str,
                         help="Branch to check out (mutually exclusive with --tag and --commit)")
     parser.add_argument("--tag", type=str,
@@ -829,6 +867,18 @@ def main():
 
         prefix = args.prefix.expanduser().resolve()
         update_source(prefix)
+        return
+
+    # Handle sync-fork flag (must be used alone)
+    if args.sync_fork:
+        if (args.create_pg_fdw or args.create_replica or args.skip_build or
+            args.force_worktree or args.patch or args.recreate_activate_script or
+            args.branch or args.tag or args.list_worktrees or args.clean_worktrees or
+            args.remove_worktree or args.update_source):
+            parser.error("--sync-fork cannot be used with other options")
+
+        prefix = args.prefix.expanduser().resolve()
+        sync_fork(prefix)
         return
 
     # Handle --indent: run pgindent on changed files
