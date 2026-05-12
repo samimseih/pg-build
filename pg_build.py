@@ -147,6 +147,18 @@ def setup_worktree(repo_root: Path,
         if line.startswith("branch refs/heads/"):
             branches_in_use.add(line.split("/")[-1])
 
+    # Determine the best remote base: prefer upstream, fall back to origin
+    upstream_refs = subprocess.run(
+        ["git", "branch", "-r", "--format", "%(refname:short)"],
+        cwd=repo_root, capture_output=True, text=True
+    ).stdout.splitlines()
+
+    if f"upstream/{checkout_ref}" in upstream_refs:
+        remote_base = f"upstream/{checkout_ref}"
+    else:
+        remote_base = f"origin/{checkout_ref}"
+    log.info(f"📌 Basing worktree on {remote_base}")
+
     # For commits, create detached HEAD worktree
     if commit:
         run(["git", "worktree", "add", "--detach", str(worktree_dir), checkout_ref], cwd=repo_root)
@@ -163,13 +175,32 @@ def setup_worktree(repo_root: Path,
         ).stdout.splitlines()
 
         if unique_branch in existing_branches:
+            # Remove any worktree still using this branch before deleting it
+            wt_porcelain = subprocess.run(
+                ["git", "worktree", "list", "--porcelain"],
+                cwd=repo_root, capture_output=True, text=True
+            ).stdout
+            wt_path = None
+            for block in wt_porcelain.split("\n\n"):
+                if f"branch refs/heads/{unique_branch}" in block:
+                    for bline in block.splitlines():
+                        if bline.startswith("worktree "):
+                            wt_path = bline[len("worktree "):]
+                            break
+                    break
+            if wt_path:
+                log.info(f"🧹 Removing worktree at {wt_path} (holds branch {unique_branch})")
+                run(["git", "worktree", "remove", "--force", wt_path], cwd=repo_root, check=False)
+
             log.info(f"🧹 Deleting existing local branch {unique_branch}")
             run(["git", "branch", "-D", unique_branch], cwd=repo_root)
         # -------------------------------------------------------------
 
         run(["git", "worktree", "add", "-b", unique_branch,
-             str(worktree_dir), f"origin/{checkout_ref}"], cwd=repo_root)
+             str(worktree_dir), remote_base], cwd=repo_root)
     else:
+        # Reset local branch to latest upstream/origin before creating worktree
+        run(["git", "branch", "-f", checkout_ref, remote_base], cwd=repo_root, check=False)
         run(["git", "worktree", "add", str(worktree_dir), checkout_ref], cwd=repo_root)
 
     log.info(f"🔀 Worktree ready at {worktree_dir}")
