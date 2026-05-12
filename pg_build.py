@@ -647,6 +647,23 @@ def clean_worktrees(prefix: Path):
         except Exception:
             pass
 
+    # Remove pghome, pgdata, and activate scripts for each worktree
+    for worktree in worktrees:
+        instance_name = worktree.name
+        pghome_dir = prefix / "pghome" / instance_name
+        pgdata_dir = prefix / "pgdata" / instance_name
+        script = prefix / f"activate_{instance_name}.sh"
+
+        if pghome_dir.exists():
+            log.info(f"  Removing {pghome_dir}")
+            shutil.rmtree(pghome_dir, ignore_errors=True)
+        if pgdata_dir.exists():
+            log.info(f"  Removing {pgdata_dir}")
+            shutil.rmtree(pgdata_dir, ignore_errors=True)
+        if script.exists():
+            log.info(f"  Removing {script}")
+            script.unlink()
+
     # Remove worktrees directory
     if worktrees_dir.exists():
         shutil.rmtree(worktrees_dir, ignore_errors=True)
