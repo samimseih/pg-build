@@ -860,8 +860,9 @@ def main():
                         help="Continue a previously failed git am and proceed with the build")
     parser.add_argument("--coverage", action="store_true",
                         help="Enable test coverage instrumentation (adds -Db_coverage=true to meson)")
-    parser.add_argument("--indent", choices=["head", "staged", "unstaged"],
-                        help="Run pgindent on files changed in HEAD commit, staged files, or unstaged files")
+    parser.add_argument("--indent",
+                        help="Run pgindent on files changed in HEAD commit, staged files, "
+                             "unstaged files, or a specific commit (head|staged|unstaged|<commit-hash>)")
 
     global args
     args = parser.parse_args()
@@ -952,8 +953,11 @@ def main():
             diff_cmd = ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]
         elif args.indent == "staged":
             diff_cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=d"]
-        else:  # unstaged
+        elif args.indent == "unstaged":
             diff_cmd = ["git", "diff", "--name-only", "--diff-filter=d"]
+        else:
+            # Treat as a commit hash
+            diff_cmd = ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", args.indent]
 
         result = run(diff_cmd, cwd=worktree_dir, capture_output=True, text=True)
         files = [f for f in result.stdout.strip().splitlines() if f.endswith((".c", ".h"))]

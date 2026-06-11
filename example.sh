@@ -15,7 +15,7 @@ export CXX="ccache c++"
 # --meson-flags "-Db_sanitize=address -Ddocs=enabled --debug -Dcassert=true -Dtap_tests=enabled -Dinjection_points=true '-Dc_args=-Wall'" \
 
 # Remote configuration
-ORIGIN_URL="https://github.com/<your-username>/postgres.git"
+ORIGIN_URL="https://github.com/samimseih/postgres.git"
 # Optional: set only if using a fork (omit to use ORIGIN_URL as upstream)
 UPSTREAM_URL="https://github.com/postgres/postgres.git"
 
