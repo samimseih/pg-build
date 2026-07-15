@@ -51,6 +51,7 @@ python pg_build.py [OPTIONS]
 | `--remove-worktree NAME` | — | Remove a single worktree by name (as shown by `--list-worktrees`) and exit |
 | `--update-source` | — | Fetch latest changes from all remotes in source directory and exit |
 | `--recreate-activate-script` | off | Only recreate the activation script (cannot be used with other options) |
+| `--indent MODE` | — | Run pgindent on changed files. Mode: `head`, `staged`, `unstaged`, or a number N to run on the last N commits individually (amending each) |
 | `--continue` | off | Continue a previously failed `git am` and proceed with the build |
 
 ## Examples
@@ -138,6 +139,16 @@ Force recreation of worktree (useful when switching branches or after manual cha
 Force recreation of worktree (useful when switching branches or after manual changes):
 ```bash
 python pg_build.py --worktree-name dev --branch master --skip-build --force-worktree
+```
+
+Run pgindent on the last 4 commits individually (amending formatting fixes into each):
+```bash
+python pg_build.py --worktree-name dev --indent 4
+```
+
+Run pgindent on files changed in the HEAD commit:
+```bash
+python pg_build.py --worktree-name dev --indent head
 ```
 
 Recreate activation script only (useful after changing ports or paths):

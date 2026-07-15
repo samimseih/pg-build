@@ -861,8 +861,9 @@ def main():
     parser.add_argument("--coverage", action="store_true",
                         help="Enable test coverage instrumentation (adds -Db_coverage=true to meson)")
     parser.add_argument("--indent",
-                        help="Run pgindent on files changed in HEAD commit, staged files, "
-                             "unstaged files, or a specific commit (head|staged|unstaged|<commit-hash>)")
+                        help="Run pgindent on changed files. Options: head, staged, unstaged, "
+                             "a number N to run on the last N commits individually (amending each), "
+                             "or a commit hash")
 
     global args
     args = parser.parse_args()
@@ -949,6 +950,69 @@ def main():
             log.error(f"❌ pgindent not found: {pgindent}")
             sys.exit(1)
 
+        pg_bsd_indent_dir = worktree_dir / "build/src/tools/pg_bsd_indent"
+        env = os.environ.copy()
+        env["PATH"] = f"{pg_bsd_indent_dir}:{env.get('PATH', '')}"
+
+        # Numeric argument: run pgindent on last N commits individually
+        if args.indent.isdigit():
+            n = int(args.indent)
+            if n < 1:
+                parser.error("--indent N must be >= 1")
+
+            # Get the N commit SHAs in oldest-first order
+            result = run(["git", "log", "--oneline", f"-{n}", "--reverse"],
+                         cwd=worktree_dir, capture_output=True, text=True)
+            commits = [line.split()[0] for line in result.stdout.strip().splitlines()]
+            if len(commits) < n:
+                log.error(f"❌ Only {len(commits)} commits available, requested {n}")
+                sys.exit(1)
+
+            # Build sed expression to mark all commits for edit
+            sed_expr = "".join(f"s/^pick {sha}/edit {sha}/;" for sha in commits)
+            base_result = run(["git", "rev-parse", f"HEAD~{n}"],
+                              cwd=worktree_dir, capture_output=True, text=True)
+            base = base_result.stdout.strip()
+
+            # Start interactive rebase with all commits marked for edit
+            rebase_env = env.copy()
+            rebase_env["GIT_SEQUENCE_EDITOR"] = f"sed -i '' '{sed_expr}'"
+            result = run(["git", "rebase", "-i", base],
+                         cwd=worktree_dir, env=rebase_env, capture_output=True, text=True,
+                         check=False)
+            if result.returncode != 0 and "Stopped at" not in (result.stdout or "") + (result.stderr or ""):
+                log.error(f"❌ Failed to start rebase: {result.stderr}")
+                sys.exit(1)
+
+            # Process each commit
+            amended = 0
+            while True:
+                # Get C/H files changed in current commit
+                result = run(["git", "diff", "--name-only", "HEAD^..HEAD"],
+                             cwd=worktree_dir, capture_output=True, text=True)
+                files = [f for f in result.stdout.strip().splitlines() if f.endswith((".c", ".h"))]
+
+                if files:
+                    run([str(pgindent)] + files, cwd=worktree_dir, env=env, check=False)
+                    # Check if pgindent made changes
+                    result = run(["git", "diff", "--stat"],
+                                 cwd=worktree_dir, capture_output=True, text=True)
+                    if result.stdout.strip():
+                        log.info(f"pgindent fixed:\n{result.stdout.strip()}")
+                        run(["git", "add", "-u"], cwd=worktree_dir)
+                        run(["git", "commit", "--amend", "--no-edit"], cwd=worktree_dir)
+                        amended += 1
+
+                # Continue to next commit
+                result = run(["git", "rebase", "--continue"],
+                             cwd=worktree_dir, capture_output=True, text=True,
+                             check=False)
+                if result.returncode != 0 and "Stopped at" not in (result.stdout or "") + (result.stderr or ""):
+                    break
+
+            log.info(f"✅ pgindent completed: {amended} commit(s) amended.")
+            return
+
         if args.indent == "head":
             diff_cmd = ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]
         elif args.indent == "staged":
@@ -965,10 +1029,6 @@ def main():
         if not files:
             log.info("No .c/.h files found to indent.")
             return
-
-        pg_bsd_indent_dir = worktree_dir / "build/src/tools/pg_bsd_indent"
-        env = os.environ.copy()
-        env["PATH"] = f"{pg_bsd_indent_dir}:{env.get('PATH', '')}"
 
         log.info(f"Running pgindent on {len(files)} file(s)...")
         run([str(pgindent)] + files, cwd=worktree_dir, env=env)
