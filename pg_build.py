@@ -809,6 +809,106 @@ def list_worktrees(prefix: Path):
         log.info("")
 
 # -----------------------------
+# Verify a patch series per-commit
+# -----------------------------
+def verify_series(prefix: Path, worktree_name: str, base: Optional[str], build_system: str):
+    """Build and test every commit in base..HEAD standalone.
+
+    A reviewer confirms each commit in a series builds clean and passes tests
+    on its own (the classic `git rebase <base> --exec 'ninja && meson test'`).
+    This iterates the commits in a detached HEAD -- it does NOT rewrite history
+    -- building and testing each, then restores the original ref. Stops at the
+    first failing commit, since that is the one to fix.
+    """
+    worktree_dir = (prefix / "worktrees" / worktree_name).resolve()
+    if not worktree_dir.exists():
+        log.error(f"❌ Worktree not found: {worktree_dir}")
+        sys.exit(1)
+
+    def git_out(cmd_args, check=True):
+        return subprocess.run(["git"] + cmd_args, cwd=worktree_dir,
+                              capture_output=True, text=True, check=check).stdout.strip()
+
+    # Refuse tracked modifications or an in-progress rebase/am -- either makes
+    # the per-commit result meaningless. Untracked files are fine: git checkout
+    # carries them across without affecting the build.
+    tracked_dirty = subprocess.run(["git", "diff", "--quiet"], cwd=worktree_dir).returncode != 0
+    staged_dirty = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=worktree_dir).returncode != 0
+    if tracked_dirty or staged_dirty:
+        log.error("❌ Working tree has uncommitted tracked changes. Commit or stash before verifying.")
+        sys.exit(1)
+    git_path = worktree_dir / git_out(["rev-parse", "--git-dir"])
+    if (git_path / "rebase-merge").exists() or (git_path / "rebase-apply").exists():
+        log.error("❌ A rebase or git am is in progress. Resolve it first.")
+        sys.exit(1)
+
+    build_dir = worktree_dir / "build"
+    if build_system != "make" and not build_dir.exists():
+        log.error(f"❌ No configured build dir at {build_dir}. Build the worktree first.")
+        sys.exit(1)
+
+    # Resolve base: explicit --base, else merge-base with origin/master (isolates
+    # the series from unrelated upstream churn).
+    if not base:
+        try:
+            base = git_out(["merge-base", "HEAD", "origin/master"])
+        except subprocess.CalledProcessError:
+            log.error("❌ Could not compute merge-base with origin/master. Pass --base <ref>.")
+            sys.exit(1)
+        log.info(f"📌 Using merge-base with origin/master: {base}")
+
+    # Remember where to return: branch name if on one, else the current SHA.
+    original_ref = git_out(["symbolic-ref", "--quiet", "--short", "HEAD"], check=False)
+    if not original_ref:
+        original_ref = git_out(["rev-parse", "HEAD"])
+
+    commits = git_out(["rev-list", "--reverse", f"{base}..HEAD"]).splitlines()
+    if not commits:
+        log.info("No commits between base and HEAD; nothing to verify.")
+        return
+
+    log.info(f"🔍 Verifying {len(commits)} commit(s) in {base}..HEAD (build system: {build_system})")
+
+    results = []
+    try:
+        for sha in commits:
+            subject = git_out(["log", "-1", "--format=%s", sha])
+            log.info(f"\n━━━ {sha[:12]} {subject} ━━━")
+            run(["git", "checkout", "--quiet", "--detach", sha], cwd=worktree_dir)
+
+            ok = True
+            try:
+                if build_system == "make":
+                    run(["make", "-j", str(os.cpu_count() or 4)], cwd=worktree_dir)
+                    run(["make", "check"], cwd=worktree_dir)
+                else:
+                    # Force initdb-template regeneration: meson does not rebuild
+                    # tmp_install/initdb-template after a checkout, so a stale
+                    # template yields false diffs or false passes.
+                    shutil.rmtree(build_dir / "tmp_install", ignore_errors=True)
+                    run(["ninja", "-C", "build"], cwd=worktree_dir)
+                    run(["meson", "test", "-C", "build", "--suite", "setup"], cwd=worktree_dir)
+                    run(["meson", "test", "-C", "build"], cwd=worktree_dir)
+            except subprocess.CalledProcessError:
+                ok = False
+            results.append((sha, subject, ok))
+            log.info(f"{'✅' if ok else '❌'} {sha[:12]} {subject}")
+            if not ok:
+                break
+    finally:
+        log.info(f"↩️  Restoring {original_ref}")
+        run(["git", "checkout", "--quiet", original_ref], cwd=worktree_dir, check=False)
+
+    log.info("\n═══ Series verification summary ═══")
+    for sha, subject, ok in results:
+        log.info(f"  {'PASS' if ok else 'FAIL'}  {sha[:12]}  {subject}")
+    failed = [r for r in results if not r[2]]
+    if failed:
+        log.error(f"❌ {len(failed)} commit(s) failed. First failure: {failed[0][0][:12]}")
+        sys.exit(1)
+    log.info(f"✅ All {len(results)} commit(s) build clean and pass tests standalone.")
+
+# -----------------------------
 # Main
 # -----------------------------
 def main():
@@ -861,6 +961,11 @@ def main():
                         help="Fetch latest changes from all remotes in source directory and exit")
     parser.add_argument("--recreate-activate-script", action="store_true",
                         help="Only recreate the activation script (cannot be used with other options)")
+    parser.add_argument("--verify-series", action="store_true",
+                        help="Build and test every commit in base..HEAD standalone (per-commit "
+                             "verification for a patch series) and exit. Requires --worktree-name.")
+    parser.add_argument("--base", type=str,
+                        help="Base ref for --verify-series (default: merge-base with origin/master)")
     parser.add_argument("--continue", dest="continue_am", action="store_true",
                         help="Continue a previously failed git am and proceed with the build")
     parser.add_argument("--coverage", action="store_true",
@@ -1082,6 +1187,20 @@ def main():
         start_db(pg_home, pgdata_dir, env)
 
         log.info("✅ Continue completed successfully.")
+        return
+
+    # Handle verify-series flag (must be used alone)
+    if args.verify_series:
+        if (args.create_pg_fdw or args.create_replica or args.skip_build or
+            args.force_worktree or args.patch or args.recreate_activate_script or
+            args.branch or args.tag or args.commit or args.list_worktrees or
+            args.clean_worktrees or args.remove_worktree or args.update_source):
+            parser.error("--verify-series cannot be used with other build options")
+
+        prefix = args.prefix.expanduser().resolve()
+        if not args.worktree_name:
+            parser.error("--worktree-name is required with --verify-series")
+        verify_series(prefix, args.worktree_name, args.base, args.build_system)
         return
 
     # Check for mutually exclusive option

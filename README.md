@@ -51,6 +51,8 @@ python pg_build.py [OPTIONS]
 | `--remove-worktree NAME` | — | Remove a single worktree by name (as shown by `--list-worktrees`) and exit |
 | `--update-source` | — | Fetch latest changes from all remotes in source directory and exit |
 | `--recreate-activate-script` | off | Only recreate the activation script (cannot be used with other options) |
+| `--verify-series` | off | Build and test every commit in `base..HEAD` standalone, then exit. Requires `--worktree-name`. See below. |
+| `--base REF` | merge-base with `origin/master` | Base ref for `--verify-series` |
 | `--indent MODE` | — | Run pgindent on changed files. Mode: `head`, `staged`, `unstaged`, or a number N to run on the last N commits individually (amending each) |
 | `--continue` | off | Continue a previously failed `git am` and proceed with the build |
 
@@ -156,6 +158,16 @@ Recreate activation script only (useful after changing ports or paths):
 python pg_build.py --worktree-name dev --recreate-activate-script --port 5432
 ```
 
+Verify every commit in a patch series builds and tests cleanly on its own
+(what a reviewer checks with `git rebase <base> --exec`):
+```bash
+# Base defaults to the merge-base with origin/master:
+python pg_build.py --worktree-name dev --verify-series
+
+# Or specify an explicit base:
+python pg_build.py --worktree-name dev --verify-series --base origin/master
+```
+
 ## Directory Layout
 
 After running, the `--prefix` directory will contain:
@@ -206,7 +218,7 @@ This exports `PGHOME`, `PGDATA`, `PGPORT`, `PATH`, `LD_LIBRARY_PATH`, and severa
 | `pg_check_world` | Run all tests |
 | `pg_build_docs` | Build documentation via `ninja docs` |
 | `pg_list_tests` | List all available Meson test targets |
-| `pg_run_suite <name>` | Run setup suite then a named test suite |
+| `pg_run_suite <name>` | Remove `tmp_install` (force initdb-template regen), then run the setup suite followed by a named test suite |
 
 ## Port Assignments
 
@@ -261,6 +273,7 @@ python pg_build.py --worktree-name my-patch --branch master --patch ~/patches/v3
 - Worktrees are preserved by default for efficiency. Use `--force-worktree` to recreate them (useful when switching branches or after manual changes).
 - The script stops any existing PostgreSQL process on the target port before reinitializing.
 - `--patch` accepts multiple files or a glob pattern; patches are applied in sorted order via `git am --3way`. If a conflict occurs, resolve it in the worktree and run `--continue` to finish applying remaining patches and proceed with the build.
+- `--verify-series` checks out each commit in `base..HEAD` in a **detached HEAD** (it never rewrites history), builds and tests it, and restores your original branch when done. It reuses the existing `build/` directory, refuses to run with uncommitted **tracked** changes (untracked files are fine), removes `tmp_install` before each commit's setup suite to force initdb-template regeneration, and stops at the first failing commit.
 - Both `--branch` and `--tag` are mapped to `origin/<ref>` when creating the worktree.
 - All instance names (`--worktree-name`, `--create-replica`) must be unique — the script will error if any names collide.
 - `--upstream-url` is only needed when working with a fork. If omitted, `--repo-url` is used for both the origin and upstream remotes. When working directly with the official repository (no fork), simply set `--repo-url` and leave `--upstream-url` unset.

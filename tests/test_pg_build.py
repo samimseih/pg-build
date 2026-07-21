@@ -1174,3 +1174,101 @@ class TestEdgeCases:
 
         call_args = mock_run.call_args[0][0]
         assert str(pgdata / "logfile") in call_args
+
+
+# ============================================================
+# Tests for verify_series()
+# ============================================================
+
+def _init_repo_with_commits(path, n):
+    """Create a real git repo at path with n commits on top of an initial base.
+
+    Returns (base_sha, [commit_shas oldest-first])."""
+    path.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True, env=env)
+    (path / "base.txt").write_text("base")
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True, env=env)
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=path, check=True, env=env)
+    base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path,
+                          capture_output=True, text=True, check=True).stdout.strip()
+    shas = []
+    for i in range(n):
+        (path / f"f{i}.txt").write_text(str(i))
+        subprocess.run(["git", "add", "-A"], cwd=path, check=True, env=env)
+        subprocess.run(["git", "commit", "-q", "-m", f"commit {i}"], cwd=path, check=True, env=env)
+        shas.append(subprocess.run(["git", "rev-parse", "HEAD"], cwd=path,
+                                   capture_output=True, text=True, check=True).stdout.strip())
+    return base, shas
+
+
+class TestVerifySeries:
+    """Tests for verify_series()."""
+
+    def test_missing_worktree_exits(self, tmp_prefix):
+        (tmp_prefix / "worktrees").mkdir()
+        with pytest.raises(SystemExit):
+            pg_build.verify_series(tmp_prefix, "nope", None, "meson")
+
+    def test_dirty_tracked_tree_exits(self, tmp_prefix):
+        wt = tmp_prefix / "worktrees" / "dev"
+        _init_repo_with_commits(wt, 1)
+        (wt / "build").mkdir()
+        # Modify a tracked file -> dirty tracked tree.
+        (wt / "base.txt").write_text("modified")
+        with pytest.raises(SystemExit):
+            pg_build.verify_series(tmp_prefix, "dev", None, "meson")
+
+    def test_untracked_files_do_not_block(self, tmp_prefix):
+        wt = tmp_prefix / "worktrees" / "dev"
+        base, shas = _init_repo_with_commits(wt, 0)
+        (wt / "build").mkdir()
+        # Untracked file present; base==HEAD so zero commits, no build attempted.
+        (wt / "untracked.txt").write_text("x")
+        # Should complete without SystemExit (returns None on empty range).
+        pg_build.verify_series(tmp_prefix, "dev", base, "meson")
+
+    def test_missing_build_dir_exits_meson(self, tmp_prefix):
+        wt = tmp_prefix / "worktrees" / "dev"
+        _init_repo_with_commits(wt, 1)
+        # No build/ dir.
+        with pytest.raises(SystemExit):
+            pg_build.verify_series(tmp_prefix, "dev", "HEAD~1", "meson")
+
+    @patch("pg_build.run")
+    def test_builds_each_commit_and_restores_ref(self, mock_run, tmp_prefix):
+        wt = tmp_prefix / "worktrees" / "dev"
+        base, shas = _init_repo_with_commits(wt, 2)
+        (wt / "build").mkdir()
+        # run() is mocked so no real ninja/meson/checkout happens.
+        pg_build.verify_series(tmp_prefix, "dev", base, "meson")
+        # Each of the 2 commits: 1 checkout + ninja + 2 meson test = 4 run() calls,
+        # plus a final restore checkout. Assert we at least checked out both SHAs
+        # and issued build/test commands.
+        issued = [c.args[0] for c in mock_run.call_args_list]
+        checkouts = [a for a in issued if a[:2] == ["git", "checkout"]]
+        assert len(checkouts) >= 3  # 2 commit checkouts + 1 restore
+        assert any(a[0] == "ninja" for a in issued)
+        assert any(a[:2] == ["meson", "test"] for a in issued)
+
+    @patch("pg_build.run")
+    def test_stops_at_first_failure(self, mock_run, tmp_prefix):
+        wt = tmp_prefix / "worktrees" / "dev"
+        base, shas = _init_repo_with_commits(wt, 3)
+        (wt / "build").mkdir()
+
+        # Fail ninja on the second commit's build.
+        state = {"checkouts": 0}
+        def side_effect(cmd, **kwargs):
+            if cmd[:2] == ["git", "checkout"] and "--detach" in cmd:
+                state["checkouts"] += 1
+            if cmd[0] == "ninja" and state["checkouts"] == 2:
+                raise subprocess.CalledProcessError(1, cmd)
+            return MagicMock()
+        mock_run.side_effect = side_effect
+
+        with pytest.raises(SystemExit):
+            pg_build.verify_series(tmp_prefix, "dev", base, "meson")
+        # Should not have checked out the 3rd commit after the 2nd failed.
+        assert state["checkouts"] == 2
