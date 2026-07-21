@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""commit-msg hook: enforce PostgreSQL commit-message conventions.
+
+Checks the message git is about to record:
+  - subject line <= 72 characters
+  - ASCII-only (no smart-quotes / Unicode dashes)
+  - no agent-attribution / co-author trailers (unless code is genuinely
+    derived from another contributor, in which case add it by hand after
+    bypassing with --no-verify)
+
+Bypass with `git commit --no-verify` when a rule genuinely does not apply.
+"""
+import re
+import sys
+
+ATTRIBUTION = re.compile(
+    r"^\s*(Co-authored-by:|Generated with|Co-Authored-By: Claude|"
+    r"🤖|Signed-off-by: Claude)",
+    re.IGNORECASE,
+)
+
+
+def main(msg_path: str) -> int:
+    with open(msg_path, encoding="utf-8", errors="surrogateescape") as f:
+        lines = f.read().splitlines()
+
+    # Ignore comment lines git adds to the template.
+    content = [ln for ln in lines if not ln.startswith("#")]
+    subject = content[0] if content else ""
+
+    errors = []
+    if len(subject) > 72:
+        errors.append(f"subject is {len(subject)} chars (max 72): {subject!r}")
+
+    for i, ln in enumerate(content, start=1):
+        for ch in ln:
+            if ord(ch) > 0x7F:
+                errors.append(f"non-ASCII byte on line {i}: U+{ord(ch):04X} {ch!r}")
+                break
+
+    for ln in content:
+        if ATTRIBUTION.match(ln):
+            errors.append(f"agent attribution / co-author trailer not allowed: {ln.strip()!r}")
+
+    if errors:
+        print("commit-msg: message rejected:", file=sys.stderr)
+        for e in errors:
+            print(f"  - {e}", file=sys.stderr)
+        print("Fix, or bypass with `git commit --no-verify`.", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("commit-msg: expected message file path argument", file=sys.stderr)
+        sys.exit(1)
+    sys.exit(main(sys.argv[1]))

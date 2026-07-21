@@ -220,6 +220,37 @@ This exports `PGHOME`, `PGDATA`, `PGPORT`, `PATH`, `LD_LIBRARY_PATH`, and severa
 | `pg_list_tests` | List all available Meson test targets |
 | `pg_run_suite <name>` | Remove `tmp_install` (force initdb-template regen), then run the setup suite followed by a named test suite |
 
+## Commit Hooks
+
+The `git_hooks/` directory ships two hooks that enforce PostgreSQL commit
+conventions:
+
+| Hook | Enforces |
+|---|---|
+| `pre-commit` | No non-ASCII bytes in staged additions (PostgreSQL is ASCII-only) |
+| `commit-msg` | Subject line ≤ 72 chars, ASCII-only message, no agent-attribution / co-author trailers |
+
+They are installed by pointing a repo's `core.hooksPath` at the hooks
+directory. Run `install-hooks.sh` once against the source repo; the hooks then
+apply to that repo **and every worktree under it — and to nothing else on the
+machine** (worktrees share the parent repo's config):
+
+```bash
+./install-hooks.sh HOOKS_DIR SOURCE_REPO
+# e.g.
+./install-hooks.sh ~/Development/pg-build/git_hooks ~/pgdev/installations/source
+```
+
+Re-run it whenever you create a new source repo, or to repoint an existing one
+(e.g. on a different machine where the paths differ).
+
+Bypass a hook for a single commit with `git commit --no-verify` (e.g. a
+legitimate `Co-authored-by:` when code is genuinely derived from another
+contributor). To remove entirely:
+```bash
+git -C <source-repo> config --unset core.hooksPath
+```
+
 ## Port Assignments
 
 | Instance | Port |
