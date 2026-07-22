@@ -534,6 +534,11 @@ def build_instance(pg_home: Path,
     if not skip_build:
         run_build(source_path, pg_home, args)
 
+    # If build-only, stop here without initializing a cluster
+    if args.build_only:
+        log.info(f"✅ Build completed at {pg_home} (no cluster created)")
+        return
+
     env = os.environ.copy()
     env["PATH"] = f"{pg_home}/bin:" + env.get("PATH", "")
 
@@ -945,6 +950,8 @@ def main():
                         help="Skip the build step (re-init DB only)")
     parser.add_argument("--worktree-only", action="store_true",
                         help="Only create worktree, skip build and DB initialization")
+    parser.add_argument("--build-only", action="store_true",
+                        help="Build the source but skip DB initialization and startup (no cluster)")
     parser.add_argument("--force-worktree", action="store_true",
                         help="Force recreation of worktree even if it exists")
     parser.add_argument("--capture-output", action="store_true",

@@ -43,6 +43,7 @@ python pg_build.py [OPTIONS]
 | `--create-replica NAME` | — | Also build and start a replica instance with the given NAME (port + 20) |
 | `--skip-build` | off | Skip the build step (re-init DB only) |
 | `--worktree-only` | off | Only create worktree, skip build and DB initialization |
+| `--build-only` | off | Build the source but skip DB initialization and startup (no cluster) |
 | `--force-worktree` | off | Force recreation of worktree even if it exists |
 | `--capture-output` | off | Suppress stdout/stderr from build commands |
 | `--port PORT` | `5432` | Port for the primary instance |
@@ -124,6 +125,11 @@ python pg_build.py --remove-worktree my-feature
 Create worktree only (no build or DB init):
 ```bash
 python pg_build.py --worktree-name my-feature --branch master --worktree-only
+```
+
+Build only (compile the source but do not init/start a cluster):
+```bash
+python pg_build.py --worktree-name my-feature --branch master --build-only
 ```
 
 Update source repository (fetch latest from all remotes):
