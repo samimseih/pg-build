@@ -1177,7 +1177,8 @@ def main():
 
             # Start interactive rebase with all commits marked for edit
             rebase_env = env.copy()
-            rebase_env["GIT_SEQUENCE_EDITOR"] = f"sed -i '' '{sed_expr}'"
+            sed_inplace = "sed -i ''" if sys.platform == "darwin" else "sed -i"
+            rebase_env["GIT_SEQUENCE_EDITOR"] = f"{sed_inplace} '{sed_expr}'"
             result = run(["git", "rebase", "-i", base],
                          cwd=worktree_dir, env=rebase_env, capture_output=True, text=True,
                          check=False)
