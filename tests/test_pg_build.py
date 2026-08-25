@@ -255,6 +255,8 @@ class TestActivateScript:
         assert "pg_build_docs" in content
         assert "pg_list_tests" in content
         assert "pg_run_suite" in content
+        assert "pg_run_pg_regress_one" in content
+        assert "pg_run_regress_one" in content
 
     def test_script_with_worktree_name(self, tmp_path, saved_env):
         pg_home = tmp_path / "pghome"
