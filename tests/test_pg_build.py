@@ -253,6 +253,7 @@ class TestActivateScript:
         assert "pg_check_extension" in content
         assert "pg_check_world" in content
         assert "pg_build_docs" in content
+        assert "pg_build" in content
         assert "pg_list_tests" in content
         assert "pg_run_suite" in content
         assert "pg_run_pg_regress_one" in content
