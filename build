@@ -1,0 +1,133 @@
+#!/bin/bash
+#
+# Thin wrapper around pg_build.py. Its only job is to pick the right flag set
+# for pg_build.py based on a few high-level modes, then forward the rest of the
+# arguments verbatim.
+#
+#   Modes (mutually compatible with meson or --build-system make):
+#     (default)              dev build: -O0, debug symbols on, asserts on, tap/injection/docs
+#     --release              perf build: -O2 -DNDEBUG, asserts off, no debug symbols
+#
+#   Independent toggles (override the mode's defaults):
+#     --assert / --no-assert   asserts on/off  (default: on for dev, off for release)
+#     --debug  / --no-debug    debug symbols on/off (default: on for dev, off for release)
+#   e.g. `--release --debug` = optimized + symbols + no asserts (good for profiling)
+#
+#   Management subcommands (forwarded as-is, no build flags added):
+#     -l/--list-worktrees, --clean-worktrees, --remove-worktree, --commit,
+#     --tag, --sync-fork, --update-source, --indent,
+#     --recreate-activate-script
+#
+#   Set BUILD_DRY_RUN=1 to print the pg_build.py command instead of running it.
+
+# --- resolve the real script dir (follow symlinks) ---
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  dir="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$dir/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+PG_BUILD="$SCRIPT_DIR/pg_build.py"
+
+export CC="ccache cc"
+export CXX="ccache c++"
+
+REPO_ARGS=(--repo-url    "https://github.com/samimseih/postgres.git"
+           --upstream-url "https://github.com/postgres/postgres.git")
+
+# Exact tokens that mean "run a management subcommand, don't build".
+MGMT_TOKENS=(-l --list-worktrees --clean-worktrees --remove-worktree \
+             --commit --tag --sync-fork --update-source --indent \
+             --recreate-activate-script)
+
+# --- classify arguments in a single pass ---
+mode=dev            # dev | release
+cassert=true        # only consulted for the dev build
+debug=""            # "" = not overridden; effective value computed after the loop
+build_system=meson  # meson | make (mirrors --build-system, still forwarded)
+mgmt=0              # 1 if any management token is present
+PASS=()             # args forwarded to pg_build.py (wrapper-only flags removed)
+prev=""
+
+for arg in "$@"; do
+  # management token? (exact match against the list)
+  for t in "${MGMT_TOKENS[@]}"; do [[ "$arg" == "$t" ]] && mgmt=1; done
+  # remember the build system so we can choose meson vs configure flags
+  [[ "$prev" == "--build-system" ]] && build_system="$arg"
+  prev="$arg"
+
+  case "$arg" in
+    --release)                mode=release ;;              # consumed
+    --no-assert)              cassert=false ;;             # consumed
+    --assert)                 cassert=true ;;              # consumed
+    --no-debug)               debug=false ;;               # consumed
+    --debug)                  debug=true ;;                # consumed
+    *)                        PASS+=("$arg") ;;            # forwarded
+  esac
+done
+
+# Debug symbols are their own axis: default on for dev, off for release,
+# unless the user forced it with --debug/--no-debug.
+if [[ -z "$debug" ]]; then
+  [[ "$mode" == "release" ]] && debug=false || debug=true
+fi
+
+run() {  # honor BUILD_DRY_RUN for easy inspection/testing
+  if [[ -n "${BUILD_DRY_RUN:-}" ]]; then
+    printf '%q ' python3 "$@"; echo
+  else
+    python3 "$@"
+  fi
+}
+
+# --- management subcommands: forward verbatim, no build flags ---
+if [[ $mgmt -eq 1 ]]; then
+  run "$PG_BUILD" "${REPO_ARGS[@]}" "${PASS[@]}"
+  exit $?
+fi
+
+# --- otherwise, build: pick one flag set, then invoke once ---
+COMMON=(--prefix ~/pgdev/installations --branch master --capture-output "${REPO_ARGS[@]}")
+
+if [[ "$build_system" == "make" ]]; then
+  dbg_flag=""; [[ "$debug" == "true" ]] && dbg_flag="--enable-debug"
+  if [[ "$mode" == "release" ]]; then
+    BUILD_FLAGS=(--configure-flags "$dbg_flag --enable-tap-tests CFLAGS='-O2 -DNDEBUG'")
+  else
+    asrt_flag=""; [[ "$cassert" == "true" ]] && asrt_flag="--enable-cassert"
+    BUILD_FLAGS=(--configure-flags "$dbg_flag $asrt_flag --enable-tap-tests --enable-injection-points --enable-docs CFLAGS='-Wall'")
+  fi
+else  # meson
+  if [[ "$mode" == "release" ]]; then
+    BUILD_FLAGS=(--meson-flags "-Doptimization=2 -Ddebug=$debug -Db_ndebug=true -Dcassert=false -Dtap_tests=disabled -Dinjection_points=false -Ddocs=disabled")
+  else
+    BUILD_FLAGS=(--meson-flags "-Ddocs=enabled -Ddebug=$debug -Dcassert=$cassert -Dtap_tests=enabled -Dinjection_points=true '-Dc_args=-Wall'")
+  fi
+fi
+
+run "$PG_BUILD" "${COMMON[@]}" "${BUILD_FLAGS[@]}" "${PASS[@]}"
+
+# --- post-build: refresh ctags and report the configured build type ---
+if [[ -z "${BUILD_DRY_RUN:-}" ]]; then
+  prev=""
+  for arg in "${PASS[@]}"; do
+    if [[ "$prev" == "--worktree-name" ]]; then
+      wt=~/pgdev/installations/worktrees/$arg
+      [[ -d "$wt" ]] && ctags -R "$wt"
+
+      # Confirm the actual configuration as recorded in the build dir, so the
+      # requested mode ($mode) can be checked against what meson really set.
+      # (meson configure with no build-dir arg prints project defaults, not the
+      # configured build -- always point it at build/.)
+      if [[ "$build_system" == "meson" && -d "$wt/build" ]]; then
+        echo
+        echo "=== Configured build type ($wt/build) [requested: $mode] ==="
+        meson configure "$wt/build" 2>/dev/null \
+          | grep -E '^\s+(buildtype|optimization|debug|b_ndebug|cassert)\s'
+      fi
+      break
+    fi
+    prev="$arg"
+  done
+fi

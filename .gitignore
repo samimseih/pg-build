@@ -1,3 +1,4 @@
 __pycache__
 test_config
-build
+build/
+!/build
