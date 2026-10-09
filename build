@@ -24,8 +24,10 @@
 #     --recreate-activate-script
 #
 #   Local CI flavor tests:
-#     --ci-flavor linux-autoconf [--ci-ref REF] [--worktree-name NAME]
-#       Reproduce the GitHub Actions "Linux - Autoconf" job in Docker.
+#     --ci-flavor FLAVOR [--ci-ref REF] [--worktree-name NAME]
+#       Reproduce a supported GitHub Actions Linux job in Docker.
+#       Supported flavors: sanity-check, linux-autoconf, linux-meson-32,
+#       linux-meson-64, compilerwarnings.
 #       By default, the selected worktree's HEAD commit is tested.
 #       Without --worktree-name, the current git checkout is used.
 #
@@ -170,11 +172,15 @@ run_ci_flavor() {
   fi
 
   case "$ci_flavor" in
-    linux-autoconf)
-      helper="$SCRIPT_DIR/ci_linux_autoconf_docker.sh"
+    sanity)
+      ci_flavor=sanity-check
+      helper="$SCRIPT_DIR/ci_linux_docker.sh"
+      ;;
+    sanity-check|linux-autoconf|linux-meson-32|linux-meson-64|compilerwarnings)
+      helper="$SCRIPT_DIR/ci_linux_docker.sh"
       ;;
     *)
-      echo "unknown --ci-flavor '$ci_flavor' (supported: linux-autoconf)" >&2
+      echo "unknown --ci-flavor '$ci_flavor' (supported: sanity-check, linux-autoconf, linux-meson-32, linux-meson-64, compilerwarnings)" >&2
       exit 2
       ;;
   esac
@@ -195,6 +201,7 @@ run_ci_flavor() {
   fi
 
   cmd=("$helper")
+  cmd+=(--flavor "$ci_flavor")
   [[ -n "$ci_image" ]] && cmd+=(--image "$ci_image")
   if [[ "$ci_use_current" != "true" ]]; then
     cmd+=(--ref "${ci_ref:-HEAD}")
