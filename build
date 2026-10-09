@@ -5,18 +5,34 @@
 # arguments verbatim.
 #
 #   Modes (mutually compatible with meson or --build-system make):
-#     (default)              dev build: -O0, debug symbols on, asserts on, tap/injection/docs
+#     (default)              dev build: Meson buildtype=debug, debug symbols on, asserts on, tap/injection/docs
 #     --release              perf build: -O2 -DNDEBUG, asserts off, no debug symbols
 #
 #   Independent toggles (override the mode's defaults):
 #     --assert / --no-assert   asserts on/off  (default: on for dev, off for release)
 #     --debug  / --no-debug    debug symbols on/off (default: on for dev, off for release)
+#     --injection / --no-injection  injection points on/off (default: on for dev,
+#                              off for release)
+#     --exec-backend / --no-exec-backend  exec_backend on/off (default: off)
 #   e.g. `--release --debug` = optimized + symbols + no asserts (good for profiling)
+#        `--release --injection` = injection points without asserts, to see what a
+#        production build does where an Assert would otherwise trap first
 #
 #   Management subcommands (forwarded as-is, no build flags added):
 #     -l/--list-worktrees, --clean-worktrees, --remove-worktree, --commit,
 #     --tag, --sync-fork, --update-source, --indent,
 #     --recreate-activate-script
+#
+#   Local CI flavor tests:
+#     --ci-flavor linux-autoconf [--ci-ref REF] [--worktree-name NAME]
+#       Reproduce the GitHub Actions "Linux - Autoconf" job in Docker.
+#       By default, the selected worktree's HEAD commit is tested.
+#       Without --worktree-name, the current git checkout is used.
+#
+#     CI-only flags:
+#       --ci-ref REF, --ci-use-current, --ci-shell, --ci-keep,
+#       --ci-image IMAGE, --ci-build-jobs N, --ci-test-jobs N,
+#       --ci-check TARGET, --ci-checkflags FLAGS, --ci-docker-arg ARG
 #
 #   Set BUILD_DRY_RUN=1 to print the pg_build.py command instead of running it.
 
@@ -45,16 +61,49 @@ MGMT_TOKENS=(-l --list-worktrees --clean-worktrees --remove-worktree \
 mode=dev            # dev | release
 cassert=true        # only consulted for the dev build
 debug=""            # "" = not overridden; effective value computed after the loop
+injection=""        # "" = not overridden; effective value computed after the loop
+exec_backend=false  # Windows-style EXEC_BACKEND process model
 build_system=meson  # meson | make (mirrors --build-system, still forwarded)
+prefix_root="$HOME/pgdev/installations"
+worktree_name=""
 mgmt=0              # 1 if any management token is present
 PASS=()             # args forwarded to pg_build.py (wrapper-only flags removed)
 prev=""
+pending_ci_value=""
+ci_flavor=""
+ci_ref=""
+ci_use_current=false
+ci_shell=false
+ci_keep=false
+ci_image=""
+ci_build_jobs=""
+ci_test_jobs=""
+ci_check=""
+ci_checkflags=""
+ci_docker_args=()
 
 for arg in "$@"; do
+  if [[ -n "$pending_ci_value" ]]; then
+    case "$pending_ci_value" in
+      flavor)       ci_flavor="$arg" ;;
+      ref)          ci_ref="$arg" ;;
+      image)        ci_image="$arg" ;;
+      build_jobs)   ci_build_jobs="$arg" ;;
+      test_jobs)    ci_test_jobs="$arg" ;;
+      check)        ci_check="$arg" ;;
+      checkflags)   ci_checkflags="$arg" ;;
+      docker_arg)   ci_docker_args+=("$arg") ;;
+    esac
+    pending_ci_value=""
+    continue
+  fi
+
   # management token? (exact match against the list)
   for t in "${MGMT_TOKENS[@]}"; do [[ "$arg" == "$t" ]] && mgmt=1; done
   # remember the build system so we can choose meson vs configure flags
   [[ "$prev" == "--build-system" ]] && build_system="$arg"
+  [[ "$prev" == "--prefix" ]] && prefix_root="${arg/#\~/$HOME}"
+  [[ "$prev" == "--worktree-name" ]] && worktree_name="$arg"
   prev="$arg"
 
   case "$arg" in
@@ -63,14 +112,47 @@ for arg in "$@"; do
     --assert)                 cassert=true ;;              # consumed
     --no-debug)               debug=false ;;               # consumed
     --debug)                  debug=true ;;                # consumed
+    --no-injection)           injection=false ;;           # consumed
+    --injection)              injection=true ;;            # consumed
+    --no-exec-backend)        exec_backend=false ;;        # consumed
+    --exec-backend)           exec_backend=true ;;         # consumed
+    --ci-flavor)              pending_ci_value=flavor ;;   # consumed with value
+    --ci-ref)                 pending_ci_value=ref ;;      # consumed with value
+    --ci-use-current)         ci_use_current=true ;;       # consumed
+    --ci-shell)               ci_shell=true ;;             # consumed
+    --ci-keep)                ci_keep=true ;;              # consumed
+    --ci-image)               pending_ci_value=image ;;    # consumed with value
+    --ci-build-jobs)          pending_ci_value=build_jobs ;; # consumed with value
+    --ci-test-jobs)           pending_ci_value=test_jobs ;; # consumed with value
+    --ci-check)               pending_ci_value=check ;;    # consumed with value
+    --ci-checkflags)          pending_ci_value=checkflags ;; # consumed with value
+    --ci-docker-arg)          pending_ci_value=docker_arg ;; # consumed with value
     *)                        PASS+=("$arg") ;;            # forwarded
   esac
 done
+
+if [[ -n "$pending_ci_value" ]]; then
+  echo "missing value for --ci-$pending_ci_value" >&2
+  exit 2
+fi
+
+if [[ -n "$ci_ref" && "$ci_use_current" == "true" ]]; then
+  echo "--ci-ref and --ci-use-current cannot be combined" >&2
+  exit 2
+fi
 
 # Debug symbols are their own axis: default on for dev, off for release,
 # unless the user forced it with --debug/--no-debug.
 if [[ -z "$debug" ]]; then
   [[ "$mode" == "release" ]] && debug=false || debug=true
+fi
+
+# Injection points are their own axis too: default on for dev, off for release,
+# unless the user forced it with --injection/--no-injection.  A release build
+# with injection points is how you reach code that an Assert would trap on
+# first.
+if [[ -z "$injection" ]]; then
+  [[ "$mode" == "release" ]] && injection=false || injection=true
 fi
 
 run() {  # honor BUILD_DRY_RUN for easy inspection/testing
@@ -80,6 +162,66 @@ run() {  # honor BUILD_DRY_RUN for easy inspection/testing
     python3 "$@"
   fi
 }
+
+run_ci_flavor() {
+  if [[ $mgmt -eq 1 ]]; then
+    echo "--ci-flavor cannot be combined with management subcommands" >&2
+    exit 2
+  fi
+
+  case "$ci_flavor" in
+    linux-autoconf)
+      helper="$SCRIPT_DIR/ci_linux_autoconf_docker.sh"
+      ;;
+    *)
+      echo "unknown --ci-flavor '$ci_flavor' (supported: linux-autoconf)" >&2
+      exit 2
+      ;;
+  esac
+
+  if [[ ! -x "$helper" ]]; then
+    echo "CI helper is not executable: $helper" >&2
+    exit 1
+  fi
+
+  if [[ -n "$worktree_name" ]]; then
+    ci_source="$prefix_root/worktrees/$worktree_name"
+  else
+    ci_source="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -z "$ci_source" ]]; then
+      echo "--ci-flavor needs --worktree-name or must be run inside a git checkout" >&2
+      exit 2
+    fi
+  fi
+
+  cmd=("$helper")
+  [[ -n "$ci_image" ]] && cmd+=(--image "$ci_image")
+  if [[ "$ci_use_current" != "true" ]]; then
+    cmd+=(--ref "${ci_ref:-HEAD}")
+  fi
+  [[ "$ci_use_current" == "true" ]] && cmd+=(--use-current)
+  [[ "$ci_shell" == "true" ]] && cmd+=(--shell)
+  [[ "$ci_keep" == "true" ]] && cmd+=(--keep)
+  [[ -n "$ci_build_jobs" ]] && cmd+=(--build-jobs "$ci_build_jobs")
+  [[ -n "$ci_test_jobs" ]] && cmd+=(--test-jobs "$ci_test_jobs")
+  [[ -n "$ci_check" ]] && cmd+=(--check "$ci_check")
+  [[ -n "$ci_checkflags" ]] && cmd+=(--checkflags "$ci_checkflags")
+  for docker_arg in "${ci_docker_args[@]}"; do
+    cmd+=(--docker-arg "$docker_arg")
+  done
+  cmd+=("$ci_source")
+
+  if [[ -n "${BUILD_DRY_RUN:-}" ]]; then
+    printf '%q ' "${cmd[@]}"; echo
+  else
+    "${cmd[@]}"
+  fi
+}
+
+if [[ -n "$ci_flavor" ]]; then
+  run_ci_flavor
+  exit $?
+fi
 
 # --- management subcommands: forward verbatim, no build flags ---
 if [[ $mgmt -eq 1 ]]; then
@@ -92,17 +234,19 @@ COMMON=(--prefix ~/pgdev/installations --branch master --capture-output "${REPO_
 
 if [[ "$build_system" == "make" ]]; then
   dbg_flag=""; [[ "$debug" == "true" ]] && dbg_flag="--enable-debug"
+  inj_flag=""; [[ "$injection" == "true" ]] && inj_flag="--enable-injection-points"
+  exec_backend_flag=""; [[ "$exec_backend" == "true" ]] && exec_backend_flag="--enable-exec-backend"
   if [[ "$mode" == "release" ]]; then
-    BUILD_FLAGS=(--configure-flags "$dbg_flag --enable-tap-tests CFLAGS='-O2 -DNDEBUG'")
+    BUILD_FLAGS=(--configure-flags "$dbg_flag $inj_flag $exec_backend_flag --enable-tap-tests CFLAGS='-O2 -DNDEBUG'")
   else
     asrt_flag=""; [[ "$cassert" == "true" ]] && asrt_flag="--enable-cassert"
-    BUILD_FLAGS=(--configure-flags "$dbg_flag $asrt_flag --enable-tap-tests --enable-injection-points --enable-docs CFLAGS='-Wall'")
+    BUILD_FLAGS=(--configure-flags "$dbg_flag $asrt_flag $inj_flag $exec_backend_flag --enable-tap-tests --enable-docs CFLAGS='-Wall'")
   fi
 else  # meson
   if [[ "$mode" == "release" ]]; then
-    BUILD_FLAGS=(--meson-flags "-Doptimization=2 -Ddebug=$debug -Db_ndebug=true -Dcassert=false -Dtap_tests=disabled -Dinjection_points=false -Ddocs=disabled")
+    BUILD_FLAGS=(--meson-flags "-Doptimization=2 -Ddebug=$debug -Db_ndebug=true -Dcassert=false -Dtap_tests=disabled -Dinjection_points=$injection -Dexec_backend=$exec_backend -Ddocs=disabled")
   else
-    BUILD_FLAGS=(--meson-flags "-Ddocs=enabled -Ddebug=$debug -Dcassert=$cassert -Dtap_tests=enabled -Dinjection_points=true '-Dc_args=-Wall'")
+    BUILD_FLAGS=(--meson-flags "-Dbuildtype=debug -Ddocs=enabled -Ddebug=$debug -Dcassert=$cassert -Dtap_tests=enabled -Dinjection_points=$injection -Dexec_backend=$exec_backend '-Dc_args=-Wall'")
   fi
 fi
 
@@ -124,7 +268,7 @@ if [[ -z "${BUILD_DRY_RUN:-}" ]]; then
         echo
         echo "=== Configured build type ($wt/build) [requested: $mode] ==="
         meson configure "$wt/build" 2>/dev/null \
-          | grep -E '^\s+(buildtype|optimization|debug|b_ndebug|cassert)\s'
+          | grep -E '^\s+(buildtype|optimization|debug|b_ndebug|cassert|exec_backend)\s'
       fi
       break
     fi

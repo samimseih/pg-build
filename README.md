@@ -225,9 +225,11 @@ This exports `PGHOME`, `PGDATA`, `PGPORT`, `PATH`, `LD_LIBRARY_PATH`, and severa
 | `pg_build_docs` | Build documentation via `ninja docs` |
 | `pg_build [target ...]` | Build/install the current tree; Meson defaults to `ninja install install-test-files` |
 | `pg_list_tests` | List all available Meson test targets |
+| `pg_test [meson-test-name ...]` | Run all Meson tests, or specific Meson test entries such as `regress/regress`, `recovery/049_wait_for_lsn`, or `subscription/036_sequences` |
 | `pg_run_suite <name>` | Remove `tmp_install` (force initdb-template regen), then run the setup suite followed by a named test suite |
 | `pg_run_pg_regress_one <meson-test-name> <test> [test ...]` | Regenerate `tmp_install`, run the setup suite, then run specific cases from a `pg_regress`-backed Meson entry such as `regress/regress` or `test_ddl_deparse/regress` |
 | `pg_run_regress_one <test> [test ...]` | Convenience wrapper for `pg_run_pg_regress_one regress/regress ...` |
+| `pg_run_isolation_one <test> [test ...]` | Convenience wrapper for `pg_run_pg_regress_one isolation/isolation ...` |
 
 ## Commit Hooks
 

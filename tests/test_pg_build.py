@@ -227,8 +227,10 @@ class TestActivateScript:
         pgdata = tmp_path / "pgdata"
         script = tmp_path / "activate.sh"
         indent_path = tmp_path / "indent"
+        build_dir = tmp_path / "build"
 
-        result = pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path)
+        result = pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path,
+                                          build_dir=build_dir)
 
         assert result == script
         assert script.exists()
@@ -238,8 +240,10 @@ class TestActivateScript:
         pgdata = tmp_path / "pgdata"
         script = tmp_path / "activate.sh"
         indent_path = tmp_path / "indent"
+        build_dir = tmp_path / "build"
 
-        pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path)
+        pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path,
+                                 build_dir=build_dir)
 
         content = script.read_text()
         assert f"export PGHOME={pg_home}" in content
@@ -248,6 +252,7 @@ class TestActivateScript:
         assert "export PGUSER=postgres" in content
         assert "export PGDATABASE=postgres" in content
         assert f"export LD_LIBRARY_PATH={pg_home}/lib" in content
+        assert f"export PGBUILD_BUILD_DIR={build_dir}" in content
         assert "PG_START" in content
         assert "PG_STOP" in content
         assert "pg_check_extension" in content
@@ -255,29 +260,44 @@ class TestActivateScript:
         assert "pg_build_docs" in content
         assert "pg_build" in content
         assert "pg_list_tests" in content
+        assert "pg_test" in content
         assert "pg_run_suite" in content
         assert "pg_run_pg_regress_one" in content
         assert "pg_run_regress_one" in content
+        assert "pg_run_isolation_one" in content
+        assert "output_dir.parent.mkdir(parents=True, exist_ok=True)" in content
 
-    def test_script_with_worktree_name(self, tmp_path, saved_env):
+    def test_meson_requires_build_dir(self, tmp_path, saved_env):
         pg_home = tmp_path / "pghome"
         pgdata = tmp_path / "pgdata"
         script = tmp_path / "activate.sh"
         indent_path = tmp_path / "indent"
 
-        result = pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path, worktree_name="mytest")
+        with pytest.raises(ValueError, match="build_dir is required"):
+            pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path)
 
-        expected_name = tmp_path / "activate_mytest.sh"
-        assert result == expected_name
-        assert expected_name.exists()
+    def test_make_script_does_not_need_build_dir(self, tmp_path, saved_env):
+        pg_home = tmp_path / "pghome"
+        pgdata = tmp_path / "pgdata"
+        script = tmp_path / "activate.sh"
+        indent_path = tmp_path / "indent"
+
+        pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path,
+                                 build_system="make")
+
+        content = script.read_text()
+        assert "pg_list_tests is not available with make builds" in content
+        assert "PGBUILD_BUILD_DIR" not in content
 
     def test_sets_environment_variables(self, tmp_path, saved_env):
         pg_home = tmp_path / "pghome"
         pgdata = tmp_path / "pgdata"
         script = tmp_path / "activate.sh"
         indent_path = tmp_path / "indent"
+        build_dir = tmp_path / "build"
 
-        pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path)
+        pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path,
+                                 build_dir=build_dir)
 
         assert os.environ["PGHOME"] == str(pg_home)
         assert os.environ["PGDATA"] == str(pgdata)
@@ -291,8 +311,10 @@ class TestActivateScript:
         pgdata = tmp_path / "pgdata"
         script = tmp_path / "activate.sh"
         indent_path = tmp_path / "indent"
+        build_dir = tmp_path / "build"
 
-        pg_build.activate_script(pg_home, pgdata, 9999, script, indent_path)
+        pg_build.activate_script(pg_home, pgdata, 9999, script, indent_path,
+                                 build_dir=build_dir)
 
         content = script.read_text()
         assert "export PGPORT=9999" in content
@@ -1158,8 +1180,10 @@ class TestEdgeCases:
         pgdata = tmp_path / "pgdata"
         script = tmp_path / "activate.sh"
         indent_path = tmp_path / "indent"
+        build_dir = tmp_path / "build"
 
-        pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path)
+        pg_build.activate_script(pg_home, pgdata, 5432, script, indent_path,
+                                 build_dir=build_dir)
 
         content = script.read_text()
         assert f"{pg_home}/bin" in content
