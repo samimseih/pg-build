@@ -239,21 +239,23 @@ fi
 # --- otherwise, build: pick one flag set, then invoke once ---
 COMMON=(--prefix ~/pgdev/installations --branch master --capture-output "${REPO_ARGS[@]}")
 
+# PostgreSQL has no configure/meson option for EXEC_BACKEND; it is a CPP define.
+eb_cflag=""; [[ "$exec_backend" == "true" ]] && eb_cflag=" -DEXEC_BACKEND"
+
 if [[ "$build_system" == "make" ]]; then
   dbg_flag=""; [[ "$debug" == "true" ]] && dbg_flag="--enable-debug"
   inj_flag=""; [[ "$injection" == "true" ]] && inj_flag="--enable-injection-points"
-  exec_backend_flag=""; [[ "$exec_backend" == "true" ]] && exec_backend_flag="--enable-exec-backend"
   if [[ "$mode" == "release" ]]; then
-    BUILD_FLAGS=(--configure-flags "$dbg_flag $inj_flag $exec_backend_flag --enable-tap-tests CFLAGS='-O2 -DNDEBUG'")
+    BUILD_FLAGS=(--configure-flags "$dbg_flag $inj_flag --enable-tap-tests CFLAGS='-O2 -DNDEBUG$eb_cflag'")
   else
     asrt_flag=""; [[ "$cassert" == "true" ]] && asrt_flag="--enable-cassert"
-    BUILD_FLAGS=(--configure-flags "$dbg_flag $asrt_flag $inj_flag $exec_backend_flag --enable-tap-tests --enable-docs CFLAGS='-Wall'")
+    BUILD_FLAGS=(--configure-flags "$dbg_flag $asrt_flag $inj_flag --enable-tap-tests --enable-docs CFLAGS='-Wall$eb_cflag'")
   fi
 else  # meson
   if [[ "$mode" == "release" ]]; then
-    BUILD_FLAGS=(--meson-flags "-Doptimization=2 -Ddebug=$debug -Db_ndebug=true -Dcassert=false -Dtap_tests=disabled -Dinjection_points=$injection -Dexec_backend=$exec_backend -Ddocs=disabled")
+    BUILD_FLAGS=(--meson-flags "-Doptimization=2 -Ddebug=$debug -Db_ndebug=true -Dcassert=false -Dtap_tests=disabled -Dinjection_points=$injection -Ddocs=disabled${eb_cflag:+ '-Dc_args=$eb_cflag'}")
   else
-    BUILD_FLAGS=(--meson-flags "-Dbuildtype=debug -Ddocs=enabled -Ddebug=$debug -Dcassert=$cassert -Dtap_tests=enabled -Dinjection_points=$injection -Dexec_backend=$exec_backend '-Dc_args=-Wall'")
+    BUILD_FLAGS=(--meson-flags "-Dbuildtype=debug -Ddocs=enabled -Ddebug=$debug -Dcassert=$cassert -Dtap_tests=enabled -Dinjection_points=$injection '-Dc_args=-Wall$eb_cflag'")
   fi
 fi
 
@@ -275,7 +277,7 @@ if [[ -z "${BUILD_DRY_RUN:-}" ]]; then
         echo
         echo "=== Configured build type ($wt/build) [requested: $mode] ==="
         meson configure "$wt/build" 2>/dev/null \
-          | grep -E '^\s+(buildtype|optimization|debug|b_ndebug|cassert|exec_backend)\s'
+          | grep -E '^\s+(buildtype|optimization|debug|b_ndebug|cassert|c_args)\s'
       fi
       break
     fi
